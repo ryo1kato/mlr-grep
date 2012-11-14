@@ -1,0 +1,66 @@
+#!/usr/bin/env python
+#
+# multi-line log grep
+#
+
+import re
+import sys
+
+
+##
+## A pattern of a line of a beggining of log entry
+## Default is something like 'Wed Nov 14 06:05:26 2012 GMT'
+##
+dow   = '(Mon|Tue|Wed|Thu|Fri|Sat)'
+month = '(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
+re_linehead = re.compile('^%s %s \d{1,2} \d\d:\d\d:\d\d 20\d\d [A-Z]{3}' % (dow, month))
+
+
+header_1st  = ''
+header_rest = ''
+
+
+def mllgrep(pattern, ioin, ioout):
+    is_matched = False
+
+    logical_line = []
+    for curline in ioin.readlines():
+
+        if re_linehead.match(curline):
+            logical_line = []
+            is_matched = False
+
+        if is_matched == True:
+            ioout.write(header_rest + curline)
+            continue
+        elif pattern.search(curline):
+            if len(logical_line) == 0:
+                ioout.write(header_1st + curline)
+            else:
+                for l in logical_line + curline:
+                    ioout.write(header_rest + l)
+
+            is_matched = True
+        else:
+            logical_line.append(curline)
+
+
+
+def main():
+    if len(sys.argv) > 1 :
+        pattern = re.compile(sys.argv[1])
+    else:
+        sys.stderr.write('ERROR: too few arguments\n')
+        sys.exit(1)
+
+    if len(sys.argv) > 2 :
+        for fname in sys.argv[2:]:
+            mllgrep( pattern, open(fname), sys.stdout)
+    else:
+        mllgrep( pattern, sys.stdin, sys.stdout)
+
+
+
+
+if __name__ == '__main__':
+    main()
