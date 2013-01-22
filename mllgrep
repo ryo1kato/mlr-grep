@@ -5,6 +5,9 @@
 
 import re
 import sys
+import optparse
+
+USAGE = '''%prog [OPTIONS] KEYWORD [FILES]'''
 
 
 ##
@@ -13,16 +16,22 @@ import sys
 ##
 dow   = '(Mon|Tue|Wed|Thu|Fri|Sat)'
 month = '(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
-re_linehead = re.compile('^%s %s \d{1,2} \d\d:\d\d:\d\d 20\d\d [A-Z]{3,5} ' % (dow, month))
+dtime = '\d{1,2} \d\d:\d\d:\d\d( 20\d\d)?' # 31 12:34:56 2013
+tzone = '[A-Z]{3,5}'
+logheader = '^(%s )?%s %s (%s )?' % (dow, month, dtime, tzone)
+logheader_sample = 'Mon Jan 31 12:34:56 2013 PST'
 
 
-
-def mllgrep(pattern, ioin, ioout):
+def mllgrep(pattern, ioin, ioout, logheader=logheader):
     is_matched = False
+    if isinstance(logheader, basestring):
+        re_logheader = re.compile(logheader)
+    else:
+        re_logheader = logheader
 
     logical_line = []
     for curline in ioin:
-        if re_linehead.match(curline):
+        if re_logheader.match(curline):
             logical_line = []
             is_matched = False
 
@@ -37,23 +46,31 @@ def mllgrep(pattern, ioin, ioout):
                     ioout.write(l)
 
 
+def _optparse( args ):
+    p = optparse.OptionParser(usage=USAGE)
+    p.add_option("-l", "--logheader", metavar="REGEX", default=logheader,
+            help="pattern of beginning of a log\n(default=%s)"%logheader_sample)
+    return p.parse_args( args )
 
-def main():
+
+def main( args ):
+    opts, args = _optparse( args )
+
     if len(sys.argv) > 1 :
-        pattern = re.compile(sys.argv[1])
+        pattern = re.compile( args[0] )
     else:
         sys.stderr.write('ERROR: too few arguments\n')
         sys.exit(1)
 
     try:
-        if len(sys.argv) > 2 :
-            for fname in sys.argv[2:]:
+        if len(args) > 2 :
+            for fname in args[1:]:
                 if fname == '-':
-                    mllgrep( pattern, sys.stdin, sys.stdout)
+                    mllgrep( pattern, sys.stdin, sys.stdout, opts.logheader)
                 else:
-                    mllgrep( pattern, open(fname), sys.stdout)
+                    mllgrep( pattern, open(fname), sys.stdout, opts.logheader)
         else:
-            mllgrep( pattern, sys.stdin, sys.stdout)
+            mllgrep( pattern, sys.stdin, sys.stdout, opts.logheader)
     except KeyboardInterrupt:
         sys.exit(0)
 
@@ -61,4 +78,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main( sys.argv[1:] )
