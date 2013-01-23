@@ -22,7 +22,7 @@ logheader = '^(%s )?%s %s (%s )?' % (dow, month, dtime, tzone)
 logheader_sample = 'Mon Jan 31 12:34:56 2013 PST'
 
 
-def mllgrep(pattern, ioin, ioout, logheader=logheader):
+def mllgrep(pattern, ioin, ioout, logheader=logheader, combine=False):
     is_matched = False
     if isinstance(logheader, basestring):
         re_logheader = re.compile(logheader)
@@ -32,8 +32,13 @@ def mllgrep(pattern, ioin, ioout, logheader=logheader):
     logical_line = []
     for curline in ioin:
         if re_logheader.match(curline):
+            if is_matched and combine:
+                ioout.write('\n')
             logical_line = []
             is_matched = False
+
+        if combine:
+            curline = curline.rstrip('\n') + ' '
 
         if is_matched == True:
             ioout.write(curline)
@@ -44,17 +49,23 @@ def mllgrep(pattern, ioin, ioout, logheader=logheader):
                 is_matched = True
                 for l in logical_line:
                     ioout.write(l)
+    if is_matched and combine:
+        ioout.write('\n')
 
 
 def _optparse( args ):
     p = optparse.OptionParser(usage=USAGE)
     p.add_option("-l", "--logheader", metavar="REGEX", default=logheader,
             help="pattern of beginning of a log\n(default=%s)"%logheader_sample)
+    p.add_option("-c", "--combine", action='store_true', default=False,
+            help="Combine multi-line log into one line.")
     return p.parse_args( args )
 
 
 def main( args ):
     opts, args = _optparse( args )
+
+    common_args = [sys.stdout, opts.logheader, opts.combine]
 
     if len( args ) >= 1 :
         pattern = re.compile( args[0] )
@@ -66,13 +77,20 @@ def main( args ):
         if len(args) >= 2 :
             for fname in args[1:]:
                 if fname == '-':
-                    mllgrep( pattern, sys.stdin, sys.stdout, opts.logheader)
+                    mllgrep( pattern, sys.stdin, *common_args)
                 else:
-                    mllgrep( pattern, open(fname), sys.stdout, opts.logheader)
+                    mllgrep( pattern, open(fname), *common_args)
         else:
-            mllgrep( pattern, sys.stdin, sys.stdout, opts.logheader)
+            mllgrep( pattern, sys.stdin, *common_args)
     except KeyboardInterrupt:
         sys.exit(0)
+    except IOError as e:
+        import errno
+        if IOError.errno == errno.EPIPE:
+            sys.exit(0)
+        else:
+            raise
+
 
 
 
