@@ -56,14 +56,14 @@ def _optparse( args ):
 def main( args ):
     opts, args = _optparse( args )
 
-    if len(sys.argv) > 1 :
+    if len( args ) >= 1 :
         pattern = re.compile( args[0] )
     else:
         sys.stderr.write('ERROR: too few arguments\n')
         sys.exit(1)
 
     try:
-        if len(args) > 2 :
+        if len(args) >= 2 :
             for fname in args[1:]:
                 if fname == '-':
                     mllgrep( pattern, sys.stdin, sys.stdout, opts.logheader)
