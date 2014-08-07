@@ -9,7 +9,7 @@ progname = "hmlgrep"
 
 help = "Usage: " ++ progname ++
   " [OPTIONS...] PATTERN[...] [--] [FILES...]\n" ++
-  "Find multi-line record with PATTERN in FILES or stdin\n" ++
+  "Find multi-line record with PATTERN(s) in FILE(s) or stdin\n" ++
   "\n" ++
   "OPTIONS\n" ++
   "  -h,--help          Print this help.\n" ++
@@ -22,39 +22,67 @@ help = "Usage: " ++ progname ++
 printHelp:: IO ()
 printHelp = do System.IO.hPutStr stdout (help)
 
+----------------------------------------------------------------------------
+default_rs = "^$|----*"
+default_ors = Nothing
+
+
 
 ----------------------------------------------------------------------------
-containRegex :: String -> String -> Bool
-containRegex re str = matchRegex (mkRegex re) str /= Nothing
+-- data Log      = [String] deriving Show
+type LogEntry = (String, [String])
+type Log      = [LogEntry]
+type Pattern  = String -- Regex String (not compiled) deriving Show
 
-linesContainRegex :: [String] -> String -> Bool
-linesContainRegex lines re = or $ map (containRegex re) lines
+----------------------------------------------------------------------------
+containPattern :: Pattern -> String -> Bool
+containPattern re str = matchRegex (mkRegex re) str /= Nothing
 
 
-matchRecord :: Bool -> [String]-> [String] -> Bool
-matchRecord logiAnd res lines
-    | logiAnd   = and $ map (linesContainRegex lines) res
-    | otherwise = or  $ map (linesContainRegex lines) res
+linesContainRegex :: [String] -> Pattern -> Bool
+linesContainRegex lines re = or $ map (containPattern re) lines
 
-hmlgrep :: [String] -> [String]
-hmlgrep lines
-    | matchRecord True ["foo"] lines = lines
-    | otherwise = ["<no match>"]
 
--- hmlgrep :: Bool [String] String [String] -> [String]
--- hmlgrep logiAnd delim patterns lines =
---     filter matchRecord
---     takeWhile containRegex delim
---     dropWhile
---     splitRecords delim
+matchRecord :: Bool -> [Pattern] -> LogEntry -> Bool
+matchRecord andor patterns (header, lines)
+    | andor     = and $ map (linesContainRegex lines) patterns
+    | otherwise = or  $ map (linesContainRegex lines) patterns
 
--- splitRecords :: String [String]
--- splitRecords delim lines =
 
+toLogEntry :: Pattern -> [String] -> LogEntry
+toLogEntry _ [] = ([],[])
+toLogEntry sep (l:ls) = if containPattern sep l
+                then (l, ls)
+                else ([], (l:ls))
+
+
+lines2log :: Pattern -> [String] -> Log
+lines2log sep [] = []
+lines2log sep (l:ls) = head : tail
+    where head = toLogEntry sep $ l:(takeWhile notsep ls)
+          tail = lines2log sep (dropWhile notsep ls)
+          notsep line = not (containPattern sep line)
+
+hmlgrep :: Bool -> [Pattern] -> Log -> Log
+hmlgrep _ [] log = log
+hmlgrep _ _ [] = []
+hmlgrep andor pattern log = filter (matchRecord andor pattern) log
+
+hmlgrep_lines :: Bool -> [Pattern] -> Pattern -> [String] -> Log
+hmlgrep_lines andor patterns rs lines = hmlgrep andor patterns (lines2log rs lines)
+
+
+log2lines :: Log -> [String]
+log2lines [] = []
+log2lines ((h, l):[])   = h : l
+log2lines (([], l):logs) = l ++ (log2lines logs)
+log2lines ((h, l):logs) = h : l ++ (log2lines logs)
+
+
+mainProc pat lines = log2lines $ hmlgrep_lines True [pat] default_rs lines
 
 ----------------------------------------------------------------------------
 interactWith function inputStream outputStream = do
-    -- datestr <- getDateStringToday
     input <- hGetContents inputStream
     hPutStr outputStream $ unlines . function . lines $ input
     hFlush outputStream
@@ -62,16 +90,14 @@ interactWith function inputStream outputStream = do
 --
 -- FIXME: Use optparse-applicative to parse commandline options
 --
-
-
 main :: IO ()
 main = do args <- getArgs
           case args of
               ["-h"]     -> printHelp
               ["--help"] -> printHelp
-              [input]        -> do inputStream  <- openFile input ReadMode
-                                   interactWith hmlgrep inputStream stdout
-              []             -> interactWith hmlgrep stdin stdout
-              _              -> printHelp
+              []         -> printHelp
+              [pat, input]   -> do inputStream  <- openFile input ReadMode
+                                   interactWith (mainProc pat) inputStream stdout
+              [pat]          -> interactWith (mainProc pat) stdin stdout
 
--- vim: set makeprg=ghc\ --make\ %
+-- vim: set makeprg=ghc
