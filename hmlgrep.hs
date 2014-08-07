@@ -63,13 +63,14 @@ lines2log sep (l:ls) = head : tail
           tail = lines2log sep (dropWhile notsep ls)
           notsep line = not (containPattern sep line)
 
-hmlgrep :: Bool -> [Pattern] -> Log -> Log
-hmlgrep _ [] log = log
-hmlgrep _ _ [] = []
-hmlgrep andor pattern log = filter (matchRecord andor pattern) log
 
-hmlgrep_lines :: Bool -> [Pattern] -> Pattern -> [String] -> Log
-hmlgrep_lines andor patterns rs lines = hmlgrep andor patterns (lines2log rs lines)
+hmlgrep' :: Bool -> [Pattern] -> Log -> Log
+hmlgrep' _ [] log = log
+hmlgrep' _ _ [] = []
+hmlgrep' andor pattern log = filter (matchRecord andor pattern) log
+
+hmlgrep andor patterns rs lines =
+    log2lines $ hmlgrep' andor patterns (lines2log rs lines)
 
 
 log2lines :: Log -> [String]
@@ -79,7 +80,7 @@ log2lines (([], l):logs) = l ++ (log2lines logs)
 log2lines ((h, l):logs) = h : l ++ (log2lines logs)
 
 
-mainProc pat lines = log2lines $ hmlgrep_lines True [pat] default_rs lines
+mainProc pat lines = hmlgrep True [pat] default_rs lines
 
 ----------------------------------------------------------------------------
 interactWith function inputStream outputStream = do
