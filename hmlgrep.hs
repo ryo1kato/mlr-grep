@@ -4,10 +4,12 @@
 import Text.Regex
 import System.IO
 import System.Environment
+import Options.Applicative
+
 
 progname = "hmlgrep"
 
-help = "Usage: " ++ progname ++
+help_string = "Usage: " ++ progname ++
   " [OPTIONS...] PATTERN[...] [--] [FILES...]\n" ++
   "Find multi-line record with PATTERN(s) in FILE(s) or stdin\n" ++
   "\n" ++
@@ -20,12 +22,20 @@ help = "Usage: " ++ progname ++
   "  -o,--ors=STRING    Set output record separator to STRING.\n"
 
 printHelp:: IO ()
-printHelp = do System.IO.hPutStr stdout (help)
+printHelp = do System.IO.hPutStr stdout (help_string)
 
 ----------------------------------------------------------------------------
 default_rs = "^$|----*"
 default_ors = Nothing
 
+data HmlGrepOpts = HmlGrepOpts {
+                     andor  :: Bool
+                   , rs :: Maybe String
+                   , patterns :: [String]
+             --    , count  :: Bool
+             --    , invert :: Bool
+             --    , ignoreCase :: Bool
+                 }
 
 
 ----------------------------------------------------------------------------
@@ -80,25 +90,43 @@ log2lines (([], l):logs) = l ++ (log2lines logs)
 log2lines ((h, l):logs) = h : l ++ (log2lines logs)
 
 
-mainProc pat lines = hmlgrep True [pat] default_rs lines
-
 ----------------------------------------------------------------------------
 interactWith function inputStream outputStream = do
     input <- hGetContents inputStream
     hPutStr outputStream $ unlines . function . lines $ input
     hFlush outputStream
 
+runWithOptions :: HmlGrepOpts -> IO ()
+runWithOptions opts = interactWith mainProc stdin stdout
+    where
+        mainProc = hmlgrep a p r
+        p = patterns opts
+        a = andor opts
+        r = get_rs $ rs opts
+
+get_rs (Just rs) = rs
+get_rs Nothing   = default_rs
+
 --
 -- FIXME: Use optparse-applicative to parse commandline options
 --
 main :: IO ()
-main = do args <- getArgs
-          case args of
-              ["-h"]     -> printHelp
-              ["--help"] -> printHelp
-              []         -> printHelp
-              [pat, input]   -> do inputStream  <- openFile input ReadMode
-                                   interactWith (mainProc pat) inputStream stdout
-              [pat]          -> interactWith (mainProc pat) stdin stdout
+main = execParser opts >>= runWithOptions
+  where
+    opts = info parser ( fullDesc
+             <> progDesc "grep for multi-line text data files like logs")
+    parser = HmlGrepOpts
+      <$> switch (short 'a'  <>
+                  long "and" <>
+                  help "Extract records with all of patterns (default any)")
+      <*> (optional $ strOption (
+             short 'r' <>
+             long "rs" <>
+             metavar "RECORD_SEPARATOR" <>
+             help ("Input record separator. default: " ++ default_rs) ) )
+      <*> some (argument str (metavar "PATTERN"))
+
+
+
 
 -- vim: set makeprg=ghc
