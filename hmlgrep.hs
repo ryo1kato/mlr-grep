@@ -1,43 +1,50 @@
 --
 -- hmlgrep - Haskell Multi-Line Grep
 --
+{-
+TODOs:
+    * implement --count
+    * implement --invert-match
+    * implement --timestamp
+    * implement highlight
+
+-}
 import Text.Regex
+import Data.List
 import System.IO
 import System.Environment
 import System.Posix.Files
 import qualified System.IO.Streams as S
 import Options.Applicative
+import Control.Monad
 
-progname = "hmlgrep"
+helpdoc = concat $ intersperse " "
+    [
+      "grep(1) like tool, but \"record-oriented\", instead of line-oriented,",
+      "to search and print multi-line log entries separated by empty lines,",
+      "'----' or timestamps, etc.",
+      "If an argument in argument list is a name of",
+      "existing file or '-', that argument and",
+      "everything after that will be treated as filenames to read from.",
+      "Otherwise arguments are considered to be patterns. ('-' means stdin)",
+      "(could be confusing if you specify nonexistent filename!)",
+      "If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before",
+      "reading from it."
+    ]
 
-help_string = "Usage: " ++ progname ++
-  " [OPTIONS...] PATTERN[...] [--] [FILES...]\n" ++
-  "Find multi-line record with PATTERN(s) in FILE(s) or stdin\n" ++
-  "\n" ++
-  "OPTIONS\n" ++
-  "  -h,--help          Print this help.\n" ++
-  "  -v,--invert-match  Select non-matching lines (same as grep -v).\n" ++
-  "  -i,--ignore-case   Case-insensitive match (same as grep -i).\n" ++
-  "  -c,--count         Print number of matches.\n" ++
-  "  -r,--rs=REGEX      Set record separator to REGEX.\n" ++
-  "  -o,--ors=STRING    Set output record separator to STRING.\n"
-
-printHelp:: IO ()
-printHelp = do System.IO.hPutStr stdout (help_string)
 
 ----------------------------------------------------------------------------
-default_rs = "^$|----*"
-default_ors = Nothing
+default_rs = "^$|^----*$"
 
 data HmlGrepOpts = HmlGrepOpts {
                      andor  :: Bool
                    , rs :: Maybe String
-                   , args :: [String]
+             --    , timestamp :: Bool
              --    , count  :: Bool
              --    , invert :: Bool
              --    , ignoreCase :: Bool
+                   , args :: [String]
                  }
-
 
 ----------------------------------------------------------------------------
 -- data Log      = [String] deriving Show
@@ -92,20 +99,10 @@ log2lines ((h, l):logs) = h : l ++ (log2lines logs)
 
 
 ----------------------------------------------------------------------------
-
-interactWith function inputStream outputStream = do
-    input <- hGetContents inputStream
-    hPutStr outputStream $ unlines . function . lines $ input
-    hFlush outputStream
-
-{-
-    [pat, input]   -> do inputStream  <- openFile input ReadMode
-    interactWith (mainProc pat) inputStream stdout
-
-streamAllFiles :: [String] -> []
-streamAllFiles files = S.concatInputStreams <$> 
-    (fmap (\f -> openFile f ReadMode) files <$>)
--}
+runPipe cmd inHandles = do
+    streams <- forM inHandles hGetContents
+    hPutStr stdout $ unlines . cmd . lines $ concat streams
+    hFlush stdout
 
 get_rs (Just rs) = rs
 get_rs Nothing   = default_rs
@@ -114,24 +111,25 @@ runWithOptions :: HmlGrepOpts -> IO ()
 runWithOptions opts = do
     (ps, fs) <- splitArg (args opts)
     if fs == []
-        then interactWith (mainProc ps) stdin stdout
-        else do
-            input <- openFile (head fs) ReadMode
-            interactWith (mainProc ps) input stdout
+        then runPipe (mainProc ps) [stdin]
+        else forM fs openRO >>= runPipe (mainProc ps)
     where
         mainProc = hmlgrep (andor opts) (get_rs $ rs opts)
+        openRO fname
+            | fname == "-"  = return stdin
+            | otherwise     = openFile fname ReadMode
 
 ----------------------------------------------------------------------------
 -- Parse ARG1 ARG2 [--] ARG3 ARG4 to ([ARG1, ARG2], [ARG3, ARG4])
 splitArg' :: [String] -> [String] -> IO ([String], [String])
 splitArg' ps [] = return (ps, [])
 splitArg' ps (a:as)
-    | a == "--"  = return (ps, as)
+    | a == "-"  = return (ps, as)
     | otherwise = do
         isFile <- fileExist a
         if isFile
         then return (ps, a:as)
-        else (splitArg' (a:ps) as)
+        else (splitArg' (ps++[a]) as)
 
 splitArg = splitArg' []
 
@@ -139,20 +137,20 @@ splitArg = splitArg' []
 main :: IO ()
 main = execParser opts >>= runWithOptions
   where
-    opts = info parser ( fullDesc
-             <> progDesc "grep for multi-line text data files like logs")
+    opts = info (helper <*> parser) ( fullDesc
+             -- <> progDesc "grep for multi-line text data files like logs"
+             <> progDesc helpdoc
+            )
     parser = HmlGrepOpts
       <$> switch (short 'a'  <>
                   long "and" <>
-                  help "Extract records with all of patterns (default any)")
+                  help "Extract records with all of patterns (default: any)")
       <*> (optional $ strOption (
              short 'r' <>
              long "rs" <>
-             metavar "RECORD_SEPARATOR" <>
-             help ("Input record separator. default: " ++ default_rs) ) )
+             metavar "RS_REGEX" <>
+             help ("Input record separator. default: /" ++ default_rs ++ "/") ) )
       <*> some (argument str (metavar "PATTERN[...] [--] [FILES...]"))
-
-
 
 
 -- vim: set makeprg=ghc
