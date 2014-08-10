@@ -4,8 +4,9 @@
 import Text.Regex
 import System.IO
 import System.Environment
+import System.Posix.Files
+import qualified System.IO.Streams as S
 import Options.Applicative
-
 
 progname = "hmlgrep"
 
@@ -31,7 +32,7 @@ default_ors = Nothing
 data HmlGrepOpts = HmlGrepOpts {
                      andor  :: Bool
                    , rs :: Maybe String
-                   , patterns :: [String]
+                   , args :: [String]
              --    , count  :: Bool
              --    , invert :: Bool
              --    , ignoreCase :: Bool
@@ -79,7 +80,7 @@ hmlgrep' _ [] log = log
 hmlgrep' _ _ [] = []
 hmlgrep' andor pattern log = filter (matchRecord andor pattern) log
 
-hmlgrep andor patterns rs lines =
+hmlgrep andor rs patterns lines =
     log2lines $ hmlgrep' andor patterns (lines2log rs lines)
 
 
@@ -91,25 +92,50 @@ log2lines ((h, l):logs) = h : l ++ (log2lines logs)
 
 
 ----------------------------------------------------------------------------
+
 interactWith function inputStream outputStream = do
     input <- hGetContents inputStream
     hPutStr outputStream $ unlines . function . lines $ input
     hFlush outputStream
 
-runWithOptions :: HmlGrepOpts -> IO ()
-runWithOptions opts = interactWith mainProc stdin stdout
-    where
-        mainProc = hmlgrep a p r
-        p = patterns opts
-        a = andor opts
-        r = get_rs $ rs opts
+{-
+    [pat, input]   -> do inputStream  <- openFile input ReadMode
+    interactWith (mainProc pat) inputStream stdout
+
+streamAllFiles :: [String] -> []
+streamAllFiles files = S.concatInputStreams <$> 
+    (fmap (\f -> openFile f ReadMode) files <$>)
+-}
 
 get_rs (Just rs) = rs
 get_rs Nothing   = default_rs
 
---
--- FIXME: Use optparse-applicative to parse commandline options
---
+runWithOptions :: HmlGrepOpts -> IO ()
+runWithOptions opts = do
+    (ps, fs) <- splitArg (args opts)
+    if fs == []
+        then interactWith (mainProc ps) stdin stdout
+        else do
+            input <- openFile (head fs) ReadMode
+            interactWith (mainProc ps) input stdout
+    where
+        mainProc = hmlgrep (andor opts) (get_rs $ rs opts)
+
+----------------------------------------------------------------------------
+-- Parse ARG1 ARG2 [--] ARG3 ARG4 to ([ARG1, ARG2], [ARG3, ARG4])
+splitArg' :: [String] -> [String] -> IO ([String], [String])
+splitArg' ps [] = return (ps, [])
+splitArg' ps (a:as)
+    | a == "--"  = return (ps, as)
+    | otherwise = do
+        isFile <- fileExist a
+        if isFile
+        then return (ps, a:as)
+        else (splitArg' (a:ps) as)
+
+splitArg = splitArg' []
+
+----------------------------------------------------------------------------
 main :: IO ()
 main = execParser opts >>= runWithOptions
   where
@@ -124,7 +150,7 @@ main = execParser opts >>= runWithOptions
              long "rs" <>
              metavar "RECORD_SEPARATOR" <>
              help ("Input record separator. default: " ++ default_rs) ) )
-      <*> some (argument str (metavar "PATTERN"))
+      <*> some (argument str (metavar "PATTERN[...] [--] [FILES...]"))
 
 
 
