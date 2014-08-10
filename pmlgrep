@@ -55,9 +55,9 @@ def mllgrep(pattern, ioin, ioout, logheader=logheader, combine=False):
 
 def _optparse( args ):
     p = optparse.OptionParser(usage=USAGE)
-    p.add_option("-l", "--logheader", metavar="REGEX", default=logheader,
+    p.add_option("-r", "--rs", metavar="REGEX", default=logheader,
             help="pattern of beginning of a log\n(default=%s)"%logheader_sample)
-    p.add_option("-c", "--combine", action='store_true', default=False,
+    p.add_option("--combine", action='store_true', default=False,
             help="Combine multi-line log into one line.")
     return p.parse_args( args )
 

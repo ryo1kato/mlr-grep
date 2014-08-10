@@ -6,8 +6,11 @@ TODOs:
     * implement --count
     * implement --invert-match
     * implement --timestamp
+    * exit code based on match result
     * implement highlight
-
+    * Do a performance test and
+        - use ByteString?
+        - use faster Regex library?
 -}
 import Text.Regex
 import Data.List
