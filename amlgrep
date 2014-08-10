@@ -1,0 +1,258 @@
+#!/bin/bash
+#
+#   amlgrep - Awk Multi-line Log grep
+#
+# A grep for multiline log records - (not so) simple wrapper for
+# awk with setting IFS/RS/ORS automatically
+#
+print_help () {
+cat <<EOF
+Usage: $0 [OPTIONS] [--] PATTERNS... [--] [FILES...]
+  grep(1) like tool to search multi-line log entries separated by empty
+  lines or '\n---------\n' etc. Internally it's just an awk(1) wrapper.
+
+  If an argument is a name of existing file or '-', that argument and
+  everything after that will be treated as filenames to read from.
+  Otherwise arguments are considered to be patterns. (could be confusing
+  if you specify nonexistent filename!)
+
+  If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before
+  reading from it.
+
+OPTIONS
+  -h, --help            Print this help.
+  -v, --invert-match    Select non-matching lines (same as grep -v).
+  -i, --ignore-case     Case-insensitive match (same as grep -i).
+  -c, --count           Print number of matches.
+  --color, -m, --mono   (Do not) Highlight matches.
+        (Default is to highlight matches if standard out is a terminal.)
+  -a, --and  Print entries match with all, instead of any, of PATTERNS.
+  -r, --rs   Set input record separater. Default is:
+             "$opt_RS"
+  -t, --timestamp
+             Synomym for --rs=REGEX_DATETIME, where the regex matches
+             strings like '\n2014-12-31 12:34:56' or '\nDec 31 12:34:56'
+  --ors      Set output record separater. Default is to use RT variable.
+             (Record Terminator; match string of RS for each record)
+  --dump     Dump the awk commands that would be executed.
+
+BUGS
+  --ignore-case option only works when gawk is available on your system,
+  and it also affects how regex for --rs option is interpreted.
+EOF
+}
+
+set -eu
+
+DIE () { echo "$0: ERROR: $*" >&2; exit 1; }
+WARN () { echo "$0: WARNING: $*" >&2; }
+
+sanitize_pattern () {
+    local pattern="$1"
+    case $pattern in
+        '^'*) pattern="${pattern/^/\\n}"       ;;
+    esac
+    case $pattern in
+        *'\$') : it is escaped - ignore        ;;
+        *[^\\]'$') pattern="${pattern/\$/\\n}" ;;
+    esac
+    echo "${pattern//\//\/}"
+}
+
+#################################################################
+##
+## Detect awk type
+##
+## the original awk and nawk doesn't allow regex or '\n' in RS
+## So need to auto-detect type of awk available and adjust RS
+##
+
+if type gawk > /dev/null 2>&1
+then
+    awk='gawk'
+    awk_type='gawk'
+elif type awk > /dev/null 2>&1
+then
+    if awk --version 2>/dev/null | grep -q 'GNU'
+    then
+        awk='awk'
+        awk_type='gawk'
+    else
+        echo "$0: ERROR: mawk or gawk is required"
+        exit 1
+    fi
+else
+    DIE "ERROR: awk is not found (missing \$PATH ?)"
+fi
+
+#################################################################
+##
+## cmdline option parser
+##
+re_date='(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Dec)'
+re_isodate='20[0-9][0-9]-(0[0-9]|11|12)-(0[1-9]|[12][0-9]|3[01])'
+re_time='[0-2][0-9]:[0-5][0-9]:[0-5][0-9]'
+opt_conjunction='OR'
+opt_invert='no'
+opt_count='no'
+opt_color='auto'
+opt_ignorecase='no'
+# traditional awk doesn't support /r{m,n}/ syntax nor back-reference.
+opt_RS='\n\n+|\n+(--------*|========*)\n+'
+# default value of ORS is '\n', which we don't like because we use oldRT
+opt_ORS=''
+opt_dump='no'
+while [ $# -ge 1 ]
+do
+case $1 in
+    -[^-][^-]*)
+        firstarg="$1"; shift
+        set -- "${firstarg:0:2}" "-${firstarg:2}" "$@"; continue;;
+    --*=*)
+        firstarg="$1"; shift;
+        set -- "${firstarg%%=*}" "${firstarg#*=}" "$@"; continue;;
+    #------------------------------------------
+    -o|--or)  opt_conjunction='OR';;
+    -a|--and) opt_conjunction='AND';;
+    -v|--invert|--invert-match) opt_invert='yes';;
+    -c|--count) opt_count='yes';;
+    -i|--ignore-case) opt_ignorecase='yes';;
+    -r|--rs|--record-separator) opt_RS="$2"; shift;;
+    -t|--timestamp) opt_RS="\n($re_date[ \t]*[0-9][0-9]*|$re_isodate)[ \t]*$re_time";;
+    --ors|--output-record-separator) opt_ORS="$2"; shift;;
+    --color) opt_color='always';;
+    --mono) opt_color='never';;
+    --dump) opt_dump='yes';;
+    #------------------------------------------
+    -h|--help) print_help; exit 0;;
+    --) shift; break;;
+    -*) echo "ERROR: Unknown option: $1">&2; exit 1;;
+    *) break ;;
+esac
+shift
+done
+
+if [ $# -lt 1 ]; then
+    print_help
+    exit 1
+fi
+
+#####################################################################
+##
+## Set AWK options and variables
+##
+
+[ "$opt_invert" = yes ] && opt_conjunction="N${opt_conjunction}"
+IFS='\n'
+RS="$(sanitize_pattern "$opt_RS")"
+# gawk specific: re-interval
+awkargs=('-W' 're-interval' -F "$IFS" -v RS="$RS" -v ORS="$opt_ORS")
+
+if [ "$opt_ignorecase" = 'yes' ]
+then
+    # gawk specific
+    awkargs+=('-v' 'IGNORECASE=1')
+fi
+
+if [ "$opt_color" = 'always' -o "$opt_color" = 'auto' -a -t 1 ]
+then
+    highlight="yes"
+else
+    highlight="no"
+fi
+
+
+#################################################################
+##
+## Build an AWK script
+##
+
+first_pattern="$(sanitize_pattern "$1")"
+awkpat="$first_pattern"  # OR logic
+awkcond="\$0 ~ /$first_pattern/" # AND logic
+shift
+while [ $# -ge 1 -a ! -e "$1" ]
+do
+    pattern="$(sanitize_pattern "$1")"
+    [ -e "$pattern" ] && break
+    case "$pattern" in
+        -)  break;; # stdin
+        --) shift; break;;
+    esac
+    awkpat="${awkpat}|$pattern"
+    awkcond="${awkcond} && \$0 ~ /$pattern/"
+shift; done
+
+
+if [ "$opt_count" = 'yes' ]
+then
+    awkprint=''
+elif [ "$highlight" = 'yes' ]
+then
+    awkprint="gsub(/$awkpat/, \"$(tput rev)&$(tput sgr0)\");print"
+else
+    awkprint='print'
+fi
+
+# Unless --ors is specified explicitly, try to print TS of previous
+# record, because that makes much more sense if RS is a header of a record
+# like timestamp info.
+if [ -z "$opt_ORS" -a ! "$opt_count" ]
+then
+    awkprint="printf \"%s\", oldRT;$awkprint"
+fi
+
+case $opt_conjunction in
+    OR)   awkstatement="       /$awkpat/   {i++;$awkprint}";;
+    NOR)  awkstatement="\$0 !~ /$awkpat/   {i++;$awkprint}";;
+    AND)  awkstatement="{if   (${awkcond}) {i++;$awkprint}}";;
+    NAND) awkstatement="{if (!(${awkcond})){i++;$awkprint}}";;
+esac
+awkstatement="${awkstatement} {oldRT=RT}"
+
+
+awkexit='if (i>0){exit 0}else{exit 1}'
+if [ "$opt_count" = 'yes' ]
+then
+    awkstatement="$awkstatement END{printf \"%d\n\", i; $awkexit}"
+else
+    awkstatement="$awkstatement END{$awkexit}"
+fi
+
+#################################################################
+##
+## Run
+##
+
+# read from stdin ("-") if no file name is given
+[ $# -eq 0 ] && set -- "-"
+
+errors=0
+if [ "$opt_dump" = 'yes' ]
+then
+    for arg in "$awk" "${awkargs[@]}" "$awkstatement"
+    do
+        echo "$arg"
+    done | xargs -d'\n' -I{} -n1 echo -n "'{}' "
+    echo
+else
+    for file in "$@"
+    do
+        if [ $# -ge 2 -a "$opt_count" ]
+        then
+            echo -n "$file: "
+        fi
+        case "$file" in
+            *.gz)  gunzip -c "$file";;
+            *.bz2) bzcat -- "$file";;
+            *.xz)  xzcat -- "$file";;
+            *)     cat -- "$file";;
+        esac | $awk "${awkargs[@]}" "$awkstatement" || let ++errors
+    done
+    if (( errors > 0 ))
+    then
+        exit 1
+    else
+        exit 0
+    fi
+fi
