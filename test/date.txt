@@ -1,0 +1,24 @@
+2014-01-23 12:34:56 logentry 1
+    foo
+    foo
+    foo
+2014-01-24 12:34:57 logentry 2
+    bar
+    bar
+    bar
+2014-01-23 12:34:58 logentry 3
+    baz
+    baz
+    baz
+Jan 01, 23:12:34
+    hoge
+    hoge
+    hoge
+Jan 1 23:12:34
+    piyo
+    piyo
+    piyo
+Dec 31 11:11:11
+    huga
+    huga
+    huga

@@ -3,20 +3,25 @@
 --
 {-
 TODOs:
-    * implement --count
-    * implement --invert-match
-    * implement --timestamp
-    * exit code based on match result
-    * implement highlight
-    * Do a performance test and
-        - use ByteString?
-        - use faster Regex library?
+    * FIX: Text.Regex.Posix.String died: (ReturnCode 17,"illegal byte sequence")
+    * FIX '-' and '--' handling in optparse-applicative
+    * automated tests
+    * implement match highlight
+    * Show filenames if multiple file input
+    * Use Boyer-Moore for non-regex patterns using stringsearch library:
+      http://hackage.haskell.org/package/stringsearch-0.3.3/docs/Data-ByteString-Search.html
+
+INSTALL
+    $ cabal install directory
+    $ cabal install optparse-appricative
+    $ ghc --make hmlgrep.hs
+
 -}
 import Text.Regex
 import Data.List
 import System.IO
 import System.Environment
-import System.Posix.Files
+import System.Directory
 import qualified System.IO.Streams as S
 import Options.Applicative
 import Control.Monad
@@ -35,25 +40,32 @@ helpdoc = concat $ intersperse " "
       "reading from it."
     ]
 
+default_rs = "^$|^(====*|----)*$"
+re_month= "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Dec)"
+re_isodate = "20[0-9][0-9]-(0[0-9]|11|12)-(0[1-9]|[12][0-9]|3[01])"
+re_time = "[0-2][0-9]:[0-5][0-9]:[0-5][0-9]"
+
+timestamp_rs = "^(" ++ re_month ++ "[ \t]*[0-9][0-9]?,?|" ++ re_isodate
+                ++ ")[ \t]*" ++ re_time
+
 
 ----------------------------------------------------------------------------
-default_rs = "^$|^----*$"
 
 data HmlGrepOpts = HmlGrepOpts {
-                     andor  :: Bool
-                   , rs :: Maybe String
-             --    , timestamp :: Bool
-             --    , count  :: Bool
-             --    , invert :: Bool
+                     opt_andor  :: Bool
+                   , opt_rs :: Maybe String
+                   , opt_timestamp :: Bool
+                   , opt_count  :: Bool
+                   , opt_invert :: Bool
              --    , ignoreCase :: Bool
-                   , args :: [String]
+                   , opt_args :: [String]
                  }
 
 ----------------------------------------------------------------------------
 -- data Log      = [String] deriving Show
 type LogEntry = (String, [String])
 type Log      = [LogEntry]
-type Pattern  = String -- Regex String (not compiled) deriving Show
+type Pattern  = String -- Regex String (not compiled)
 
 ----------------------------------------------------------------------------
 containPattern :: Pattern -> String -> Bool
@@ -85,20 +97,29 @@ lines2log sep (l:ls) = head : tail
           notsep line = not (containPattern sep line)
 
 
-hmlgrep' :: Bool -> [Pattern] -> Log -> Log
-hmlgrep' _ [] log = log
-hmlgrep' _ _ [] = []
-hmlgrep' andor pattern log = filter (matchRecord andor pattern) log
-
-hmlgrep andor rs patterns lines =
-    log2lines $ hmlgrep' andor patterns (lines2log rs lines)
-
-
 log2lines :: Log -> [String]
 log2lines [] = []
 log2lines ((h, l):[])   = h : l
 log2lines (([], l):logs) = l ++ (log2lines logs)
 log2lines ((h, l):logs) = h : l ++ (log2lines logs)
+
+
+hmlgrep' :: HmlGrepOpts -> [Pattern] -> Log -> Log
+hmlgrep' _ [] log = log
+hmlgrep' _ _ [] = []
+hmlgrep' opts pattern log
+    | opt_invert opts = filter (not.matcher) log
+    | otherwise       = filter (matcher) log
+    where matcher = matchRecord (opt_andor opts) pattern
+
+hmlgrep opts patterns lines
+    | opt_count opts = [ show $ length $ hmlgrep' opts patterns logs ]
+    | otherwise      = log2lines $ hmlgrep' opts patterns logs
+    where recsep = if opt_timestamp opts
+                   then timestamp_rs
+                   else withDefault default_rs $ opt_rs opts
+          logs   = lines2log recsep lines
+
 
 
 ----------------------------------------------------------------------------
@@ -107,18 +128,23 @@ runPipe cmd inHandles = do
     hPutStr stdout $ unlines . cmd . lines $ concat streams
     hFlush stdout
 
-get_rs (Just rs) = rs
-get_rs Nothing   = default_rs
+
+withDefault :: a -> (Maybe a) -> a
+withDefault def (Just val) = val
+withDefault def Nothing = def
+
 
 runWithOptions :: HmlGrepOpts -> IO ()
 runWithOptions opts = do
-    (ps, fs) <- splitArg (args opts)
+    (ps, fs) <- splitArg (opt_args opts)
     if fs == []
         then runPipe (mainProc ps) [stdin]
         else forM fs openRO >>= runPipe (mainProc ps)
     where
-        mainProc = hmlgrep (andor opts) (get_rs $ rs opts)
+        mainProc = hmlgrep opts
         openRO fname
+            -- FIXME. optparse-applicative seems to strips off
+            -- all '-' and '--' occurrence in arguments
             | fname == "-"  = return stdin
             | otherwise     = openFile fname ReadMode
 
@@ -129,7 +155,7 @@ splitArg' ps [] = return (ps, [])
 splitArg' ps (a:as)
     | a == "-"  = return (ps, as)
     | otherwise = do
-        isFile <- fileExist a
+        isFile <- doesFileExist a
         if isFile
         then return (ps, a:as)
         else (splitArg' (ps++[a]) as)
@@ -153,6 +179,14 @@ main = execParser opts >>= runWithOptions
              long "rs" <>
              metavar "RS_REGEX" <>
              help ("Input record separator. default: /" ++ default_rs ++ "/") ) )
+      <*> switch (short 't' <> long "timestamp" <>
+                  help ("Same as --rs=TIMESTAMP_REGEX, where the regex matches " ++
+                       "timestamps often used in log files, e.g., " ++
+                       "'2014-12-31 12:34:56' or 'Dec 31 12:34:56'."))
+      <*> switch (short 'c' <> long "count" <>
+                  help "Print number of matches. (same as grep -c)")
+      <*> switch (short 'v' <> long "invert" <>
+                  help "Select non-matching records (same as grep -v).")
       <*> some (argument str (metavar "PATTERN[...] [--] [FILES...]"))
 
 
