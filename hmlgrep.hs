@@ -3,10 +3,12 @@
 --
 {-
 TODOs:
+    * FIX: exit with error if no match found
     * FIX: Text.Regex.Posix.String died: (ReturnCode 17,"illegal byte sequence")
-    * FIX '-' and '--' handling in optparse-applicative
-    * automated tests
-    * implement match highlight
+    * FIX: '-' and '--' handling in optparse-applicative
+    * Implement --ignore-case option
+    * Automated tests
+    * Implement match highlight
     * Show filenames if multiple file input
     * Use Boyer-Moore for non-regex patterns using stringsearch library:
       http://hackage.haskell.org/package/stringsearch-0.3.3/docs/Data-ByteString-Search.html
@@ -15,16 +17,17 @@ INSTALL
     $ cabal install directory
     $ cabal install optparse-appricative
     $ ghc --make hmlgrep.hs
-
 -}
-import Text.Regex
-import Data.List
-import System.IO
-import System.Environment
-import System.Directory
-import qualified System.IO.Streams as S
-import Options.Applicative
+
 import Control.Monad
+import Data.List
+import Options.Applicative
+import System.Directory
+import System.Environment
+import System.Exit
+import System.IO
+import Text.Regex
+import qualified System.IO.Streams as S
 
 helpdoc = concat $ intersperse " "
     [
@@ -112,21 +115,25 @@ hmlgrep' opts pattern log
     | otherwise       = filter (matcher) log
     where matcher = matchRecord (opt_andor opts) pattern
 
-hmlgrep opts patterns lines
-    | opt_count opts = [ show $ length $ hmlgrep' opts patterns logs ]
-    | otherwise      = log2lines $ hmlgrep' opts patterns logs
+hmlgrep :: HmlGrepOpts -> [Pattern] -> String -> String
+hmlgrep opts patterns indata
+    | opt_count opts = show $ length $ hmlgrep' opts patterns logs
+    | otherwise      = unlines.log2lines $ hmlgrep' opts patterns logs
     where recsep = if opt_timestamp opts
                    then timestamp_rs
                    else withDefault default_rs $ opt_rs opts
-          logs   = lines2log recsep lines
+          logs   = lines2log recsep $ lines indata
+
 
 
 
 ----------------------------------------------------------------------------
-runPipe cmd inHandles = do
+runPipe :: (String -> String) -> Handle -> [Handle] -> IO ()
+runPipe cmd outHandle inHandles = do
     streams <- forM inHandles hGetContents
-    hPutStr stdout $ unlines . cmd . lines $ concat streams
-    hFlush stdout
+    -- hPutStr outHandle $ unlines . cmd . lines $ concat streams
+    hPutStr outHandle $ cmd $ concat streams
+    hFlush outHandle
 
 
 withDefault :: a -> (Maybe a) -> a
@@ -138,8 +145,8 @@ runWithOptions :: HmlGrepOpts -> IO ()
 runWithOptions opts = do
     (ps, fs) <- splitArg (opt_args opts)
     if fs == []
-        then runPipe (mainProc ps) [stdin]
-        else forM fs openRO >>= runPipe (mainProc ps)
+        then runPipe (mainProc ps) stdout [stdin]
+        else forM fs openRO >>= runPipe (mainProc ps) stdout
     where
         mainProc = hmlgrep opts
         openRO fname
