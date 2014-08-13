@@ -12,3 +12,5 @@ hmlgrep: hmlgrep.hs Makefile
 clean:
 	rm -f hmlgrep
 	rm -f hmlgrep.prof
+	rm -f hmlgrep.o
+	rm -f hmlgrep.hi
