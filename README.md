@@ -18,7 +18,7 @@ Useful for multi-line logs, config files with indents or section headers, comman
 * -i, --ignore-case     Case-insensitive match (same as grep -i).
 * -c, --count           Print number of matches (same as grep -c).
 * -a, --and  Print entries match with all, instead of any, of PATTERNS.
-* -r, --rs   Set input record separater. Default is "^$|(----*|====*)$"
+* -r, --rs   Set input record separater. Default is "^$|(----\*|====\*)$"
 * -t, --timestamp
 
 
@@ -29,7 +29,7 @@ Being implemented by `awk`, it should ran on any Unix-like platform though I hav
 
 
 ## hmlgrep
-A Haskell implementation. Only supports `--rs` and `--and` options so far.
+A Haskell implementation. Doesn't support `--ignore-case` option yet.
 Most actively maintained.
 
 

@@ -3,10 +3,10 @@
 --
 {-
 TODOs:
-    * FIX: exit with error if no match found
     * FIX: Text.Regex.Posix.String died: (ReturnCode 17,"illegal byte sequence")
     * FIX: '-' and '--' handling in optparse-applicative
     * Implement --ignore-case option
+    * String to ByteString ? http://www.haskell.org/haskellwiki/Wc
     * Automated tests
     * Implement match highlight
     * Show filenames if multiple file input
@@ -27,7 +27,6 @@ import System.Environment
 import System.Exit
 import System.IO
 import Text.Regex
-import qualified System.IO.Streams as S
 
 helpdoc = concat $ intersperse " "
     [
@@ -65,12 +64,15 @@ data HmlGrepOpts = HmlGrepOpts {
                  }
 
 ----------------------------------------------------------------------------
--- data Log      = [String] deriving Show
 type LogEntry = (String, [String])
 type Log      = [LogEntry]
 type Pattern  = String -- Regex String (not compiled)
 
+
 ----------------------------------------------------------------------------
+--
+-- main logic
+--
 containPattern :: Pattern -> String -> Bool
 containPattern re str = matchRegex (mkRegex re) str /= Nothing
 
@@ -107,6 +109,7 @@ log2lines (([], l):logs) = l ++ (log2lines logs)
 log2lines ((h, l):logs) = h : l ++ (log2lines logs)
 
 
+
 hmlgrep' :: HmlGrepOpts -> [Pattern] -> Log -> Log
 hmlgrep' _ [] log = log
 hmlgrep' _ _ [] = []
@@ -115,25 +118,33 @@ hmlgrep' opts pattern log
     | otherwise       = filter (matcher) log
     where matcher = matchRecord (opt_andor opts) pattern
 
-hmlgrep :: HmlGrepOpts -> [Pattern] -> String -> String
-hmlgrep opts patterns indata
-    | opt_count opts = show $ length $ hmlgrep' opts patterns logs
-    | otherwise      = unlines.log2lines $ hmlgrep' opts patterns logs
+hmlgrep :: HmlGrepOpts -> [Pattern] -> String -> (String, Bool)
+hmlgrep opts patterns indata =
+    if do_command == []
+    then (toString do_command, False)
+    else (toString do_command, True)
     where recsep = if opt_timestamp opts
                    then timestamp_rs
                    else withDefault default_rs $ opt_rs opts
           logs   = lines2log recsep $ lines indata
-
-
+          toString = if opt_count opts
+                     then show.length
+                     else unlines.log2lines
+          do_command = hmlgrep' opts patterns logs
 
 
 ----------------------------------------------------------------------------
-runPipe :: (String -> String) -> Handle -> [Handle] -> IO ()
+--
+-- Run as a Unix command-line filter (pipe)
+--
+
+runPipe :: (String -> (String, Bool)) -> Handle -> [Handle] -> IO Bool
 runPipe cmd outHandle inHandles = do
     streams <- forM inHandles hGetContents
-    -- hPutStr outHandle $ unlines . cmd . lines $ concat streams
-    hPutStr outHandle $ cmd $ concat streams
-    hFlush outHandle
+    case (cmd $ concat streams) of
+        (result, ret) -> do
+            hPutStr outHandle result
+            return ret
 
 
 withDefault :: a -> (Maybe a) -> a
@@ -144,9 +155,12 @@ withDefault def Nothing = def
 runWithOptions :: HmlGrepOpts -> IO ()
 runWithOptions opts = do
     (ps, fs) <- splitArg (opt_args opts)
-    if fs == []
-        then runPipe (mainProc ps) stdout [stdin]
-        else forM fs openRO >>= runPipe (mainProc ps) stdout
+    ret <- if fs == []
+           then runPipe (mainProc ps) stdout [stdin]
+           else forM fs openRO >>= runPipe (mainProc ps) stdout
+    if ret
+    then exitSuccess
+    else exitFailure
     where
         mainProc = hmlgrep opts
         openRO fname
@@ -154,6 +168,7 @@ runWithOptions opts = do
             -- all '-' and '--' occurrence in arguments
             | fname == "-"  = return stdin
             | otherwise     = openFile fname ReadMode
+
 
 ----------------------------------------------------------------------------
 -- Parse ARG1 ARG2 [--] ARG3 ARG4 to ([ARG1, ARG2], [ARG3, ARG4])
@@ -169,12 +184,11 @@ splitArg' ps (a:as)
 
 splitArg = splitArg' []
 
-----------------------------------------------------------------------------
+
 main :: IO ()
 main = execParser opts >>= runWithOptions
   where
     opts = info (helper <*> parser) ( fullDesc
-             -- <> progDesc "grep for multi-line text data files like logs"
              <> progDesc helpdoc
             )
     parser = HmlGrepOpts
