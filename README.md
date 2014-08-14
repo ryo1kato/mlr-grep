@@ -29,8 +29,7 @@ Being implemented by `awk`, it should ran on any Unix-like platform though I hav
 
 
 ## hmlgrep
-A Haskell implementation. Doesn't support `--ignore-case` option yet.
-Most actively maintained.
+A Haskell implementation. Most actively maintained.
 
 
 ## pmlgrep

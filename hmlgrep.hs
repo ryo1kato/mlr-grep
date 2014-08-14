@@ -5,7 +5,6 @@
 TODOs:
     * FIX: Text.Regex.Posix.String died: (ReturnCode 17,"illegal byte sequence")
     * FIX: '-' and '--' handling in optparse-applicative
-    * Implement --ignore-case option
     * String to ByteString ? http://www.haskell.org/haskellwiki/Wc
     * Automated tests
     * Implement match highlight
@@ -59,14 +58,13 @@ data HmlGrepOpts = HmlGrepOpts {
                    , opt_timestamp :: Bool
                    , opt_count  :: Bool
                    , opt_invert :: Bool
-             --    , ignoreCase :: Bool
+                   , ignoreCase :: Bool
                    , opt_args :: [String]
                  }
 
-----------------------------------------------------------------------------
 type LogEntry = (String, [String])
 type Log      = [LogEntry]
-type Pattern  = String -- Regex String (not compiled)
+type Pattern  = Regex
 
 
 ----------------------------------------------------------------------------
@@ -74,7 +72,7 @@ type Pattern  = String -- Regex String (not compiled)
 -- main logic
 --
 containPattern :: Pattern -> String -> Bool
-containPattern re str = matchRegex (mkRegex re) str /= Nothing
+containPattern re str = matchRegex re str /= Nothing
 
 
 linesContainRegex :: [String] -> Pattern -> Bool
@@ -118,7 +116,7 @@ hmlgrep' opts pattern log
     | otherwise       = filter (matcher) log
     where matcher = matchRecord (opt_andor opts) pattern
 
-hmlgrep :: HmlGrepOpts -> [Pattern] -> String -> (String, Bool)
+hmlgrep :: HmlGrepOpts -> [String] -> String -> (String, Bool)
 hmlgrep opts patterns indata =
     if do_command == []
     then (toString do_command, False)
@@ -126,18 +124,18 @@ hmlgrep opts patterns indata =
     where recsep = if opt_timestamp opts
                    then timestamp_rs
                    else withDefault default_rs $ opt_rs opts
-          logs   = lines2log recsep $ lines indata
+          logs   = lines2log (toRegex recsep) $ lines indata
           toString = if opt_count opts
                      then show.length
                      else unlines.log2lines
-          do_command = hmlgrep' opts patterns logs
+          do_command = hmlgrep' opts (map toRegex patterns) logs
+          toRegex str = mkRegexWithOpts str True (not $ ignoreCase opts)
 
 
 ----------------------------------------------------------------------------
 --
 -- Run as a Unix command-line filter (pipe)
 --
-
 runPipe :: (String -> (String, Bool)) -> Handle -> [Handle] -> IO Bool
 runPipe cmd outHandle inHandles = do
     streams <- forM inHandles hGetContents
@@ -158,6 +156,7 @@ runWithOptions opts = do
     ret <- if fs == []
            then runPipe (mainProc ps) stdout [stdin]
            else forM fs openRO >>= runPipe (mainProc ps) stdout
+    print $ ignoreCase opts
     if ret
     then exitSuccess
     else exitFailure
@@ -208,6 +207,8 @@ main = execParser opts >>= runWithOptions
                   help "Print number of matches. (same as grep -c)")
       <*> switch (short 'v' <> long "invert" <>
                   help "Select non-matching records (same as grep -v).")
+      <*> switch (short 'i' <> long "ignore-case" <>
+                  help "Case insensitive matching. Default is case sensitive")
       <*> some (argument str (metavar "PATTERN[...] [--] [FILES...]"))
 
 
