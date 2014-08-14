@@ -238,7 +238,7 @@ then
 else
     for file in "$@"
     do
-        if [ $# -ge 2 -a "$opt_count" ]
+        if [ $# -ge 2 -a "$opt_count" = 'yes' ]
         then
             echo -n "$file: "
         fi
