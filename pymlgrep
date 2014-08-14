@@ -70,20 +70,27 @@ def _optparse( args ):
                  "'Dec 31 12:34:56'.\n(default={})".format(timestamp_sample))
     p.add_option("--combine", action='store_true', default=False,
             help="Combine multi-line log into one line.")
+    p.add_option("-i", "--ignore-case", action='store_true', default=False,
+            help="Case insensitive match.")
     return p.parse_args( args )
 
 
 def main( args ):
     opts, args = _optparse( args )
 
-    if opts.timestamp:
-        rs = timestamp
+    if opts.ignore_case:
+        ignore_case = [re.IGNORECASE]
     else:
-        rs = opts.rs
+        ignore_case = []
+
+    if opts.timestamp:
+        rs = re.compile(timestamp)
+    else:
+        rs = re.compile(opts.rs, *ignore_case)
     common_args = [sys.stdout, rs]
 
     if len( args ) >= 1 :
-        pattern = re.compile( args[0] )
+        pattern = re.compile( args[0], *ignore_case )
     else:
         sys.stderr.write('ERROR: too few arguments\n')
         sys.exit(1)

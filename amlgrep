@@ -148,7 +148,7 @@ fi
 IFS='\n'
 RS="$(sanitize_pattern "$opt_RS")"
 # gawk specific: re-interval
-awkargs=('-W' 're-interval' -F "$IFS" -v RS="$RS")
+awkargs=('-W' 're-interval' -F "$IFS" -v RS="$RS" -v ORS='')
 
 if [ "$opt_ignorecase" = 'yes' ]
 then
@@ -196,13 +196,19 @@ else
     awkprint='print'
 fi
 
-# Unless --ors is specified explicitly, try to print TS of previous
-# record, because that makes much more sense if RS is a header of a record
-# like timestamp info.
+# Print TS of previous record, because that makes much more sense
+# if RS is a header of a record like timestamp info.
 if [ "$opt_count" != "yes" ]
 then
-    # use substr to remove leading '\n' from RS
+    # use substr to remove leading '\n' from RS - it's from
+    # last line of previous record.
+    #awkprint="printf \"%s\", substr(oldRT, 2);$awkprint;printf \"\n\""
     awkprint="printf \"%s\", substr(oldRT, 2);$awkprint"
+
+    # RT is empty, it's the end of the record
+    # ... that means there's no one to consume last '\n' as part of separator
+    # (=header of the next record)
+    awkprint="$awkprint;"'if(RT != "")printf "\n"'
 fi
 
 case $opt_conjunction in

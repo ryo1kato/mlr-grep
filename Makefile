@@ -14,3 +14,4 @@ clean:
 	rm -f hmlgrep.prof
 	rm -f hmlgrep.o
 	rm -f hmlgrep.hi
+	rm -rf test-result

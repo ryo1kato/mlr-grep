@@ -8,7 +8,7 @@ TODOs:
     * String to ByteString ? http://www.haskell.org/haskellwiki/Wc
     * Automated tests
     * Implement match highlight
-    * Show filenames if multiple file input
+    * Show filenames with --count option for multiple file input
     * Use Boyer-Moore for non-regex patterns using stringsearch library:
       http://hackage.haskell.org/package/stringsearch-0.3.3/docs/Data-ByteString-Search.html
 
@@ -67,7 +67,7 @@ data HmlGrepOpts = HmlGrepOpts {
                    , opt_args :: [String]
                  }
 
-type LogEntry = (String, [String])
+type LogEntry = (Maybe String, [String])
 type Log      = [LogEntry]
 type Pattern  = Regex
 
@@ -91,10 +91,10 @@ matchRecord andor patterns (header, lines)
 
 
 toLogEntry :: Pattern -> [String] -> LogEntry
-toLogEntry _ [] = ([],[])
+toLogEntry _ [] = (Nothing, [])
 toLogEntry sep (l:ls) = if containPattern sep l
-                then (l, ls)
-                else ([], (l:ls))
+                then (Just l, ls)
+                else (Nothing, (l:ls)) -- First record without header(separator)
 
 
 lines2log :: Pattern -> [String] -> Log
@@ -107,9 +107,10 @@ lines2log sep (l:ls) = head : tail
 
 log2lines :: Log -> [String]
 log2lines [] = []
-log2lines ((h, l):[])   = h : l
-log2lines (([], l):logs) = l ++ (log2lines logs)
-log2lines ((h, l):logs) = h : l ++ (log2lines logs)
+log2lines ((Nothing, l):[])  = l
+log2lines ((Just h, l):[])   = h : l
+log2lines ((Nothing, l):logs) = l ++ (log2lines logs)
+log2lines ((Just h, l):logs) = h : l ++ (log2lines logs)
 
 
 
