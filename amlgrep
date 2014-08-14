@@ -235,8 +235,8 @@ if [ "$opt_dump" = 'yes' ]
 then
     for arg in "$awk" "${awkargs[@]}" "$awkstatement"
     do
-        echo "$arg"
-    done | xargs -d'\n' -I{} -n1 echo -n "'{}' "
+        printf "%s\\0" "$arg"
+    done | xargs -0 -I{} -n1 echo -n "'{}' "
     echo
 else
     for file in "$@"
