@@ -32,8 +32,6 @@ OPTIONS
   -t, --timestamp
              Synomym for --rs=REGEX_DATETIME, where the regex matches
              strings like '\n2014-12-31 12:34:56' or '\nDec 31 12:34:56'
-  --ors      Set output record separater. Default is to use RT variable.
-             (Record Terminator; match string of RS for each record)
   --dump     Dump the awk commands that would be executed.
 
 BUGS
@@ -70,7 +68,7 @@ sanitize_pattern () {
 if type gawk > /dev/null 2>&1
 then
     awk='gawk'
-    awk_type='gawk'
+    awk_type='gawk'*
 elif type awk > /dev/null 2>&1
 then
     if awk --version 2>/dev/null | grep -q 'GNU'
@@ -89,18 +87,23 @@ fi
 ##
 ## cmdline option parser
 ##
-re_date='(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Dec)'
+re_dow='((Mon|Tue|Wed|Thu|Fri|Sat),?[ \t]+)?'
+re_month='(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Dec),?[ \t]*'
+re_date='[0-9]{1,2},?'
+re_time='[0-2][0-9]:[0-5][0-9](:[0-5][0-9])?'
+re_year='(,?[ \t]20[0-9][0-9])?'
+re_dty="$re_date[ \t]$re_time$re_year"
 re_isodate='20[0-9][0-9]-(0[0-9]|11|12)-(0[1-9]|[12][0-9]|3[01])'
-re_time='[0-2][0-9]:[0-5][0-9]:[0-5][0-9]'
+re_timestamp="\n($re_dow$re_month$re_dty|$re_isodate)"
+
 opt_conjunction='OR'
 opt_invert='no'
 opt_count='no'
 opt_color='auto'
 opt_ignorecase='no'
 # traditional awk doesn't support /r{m,n}/ syntax nor back-reference.
-opt_RS='\n\n+|\n+(--------*|========*)\n+'
+opt_RS='\n\n|\n(----*|====*)\n'
 # default value of ORS is '\n', which we don't like because we use oldRT
-opt_ORS=''
 opt_dump='no'
 while [ $# -ge 1 ]
 do
@@ -118,8 +121,7 @@ case $1 in
     -c|--count) opt_count='yes';;
     -i|--ignore-case) opt_ignorecase='yes';;
     -r|--rs|--record-separator) opt_RS="$2"; shift;;
-    -t|--timestamp) opt_RS="\n($re_date[ \t]*[0-9][0-9]*|$re_isodate)[ \t]*$re_time";;
-    --ors|--output-record-separator) opt_ORS="$2"; shift;;
+    -t|--timestamp) opt_RS="$re_timestamp";;
     --color) opt_color='always';;
     --mono) opt_color='never';;
     --dump) opt_dump='yes';;
@@ -146,7 +148,7 @@ fi
 IFS='\n'
 RS="$(sanitize_pattern "$opt_RS")"
 # gawk specific: re-interval
-awkargs=('-W' 're-interval' -F "$IFS" -v RS="$RS" -v ORS="$opt_ORS")
+awkargs=('-W' 're-interval' -F "$IFS" -v RS="$RS")
 
 if [ "$opt_ignorecase" = 'yes' ]
 then
@@ -197,9 +199,10 @@ fi
 # Unless --ors is specified explicitly, try to print TS of previous
 # record, because that makes much more sense if RS is a header of a record
 # like timestamp info.
-if [ -z "$opt_ORS" -a "$opt_count" != "yes" ]
+if [ "$opt_count" != "yes" ]
 then
-    awkprint="printf \"%s\", oldRT;$awkprint"
+    # use substr to remove leading '\n' from RS
+    awkprint="printf \"%s\", substr(oldRT, 2);$awkprint"
 fi
 
 case $opt_conjunction in

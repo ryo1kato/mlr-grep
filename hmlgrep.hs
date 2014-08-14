@@ -41,13 +41,18 @@ helpdoc = concat $ intersperse " "
       "reading from it."
     ]
 
-default_rs = "^$|^(====*|----)*$"
-re_month= "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Dec)"
-re_isodate = "20[0-9][0-9]-(0[0-9]|11|12)-(0[1-9]|[12][0-9]|3[01])"
-re_time = "[0-2][0-9]:[0-5][0-9]:[0-5][0-9]"
+default_rs   = "^$|^(====*|----)*$"
 
-timestamp_rs = "^(" ++ re_month ++ "[ \t]*[0-9][0-9]?,?|" ++ re_isodate
-                ++ ")[ \t]*" ++ re_time
+re_dow     = "((Mon|Tue|Wed|Thu|Fri|Sat),?[ \t]+)?"
+re_month   = "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Dec),?[ \t]"
+re_date    = "[0-9]{1,2},?"
+re_time    = "[0-2][0-9]:[0-5][0-9](:[0-5][0-9])?"
+re_year    = "(,?[ \t]20[0-9][0-9])?"
+re_dty     = re_date ++ "[ \t]" ++ re_time ++ re_year
+re_isodate = "20[0-9][0-9]-(0[0-9]|11|12)-(0[1-9]|[12][0-9]|3[01])"
+
+timestamp_rs = "^(" ++ re_dow ++ re_month ++ re_dty ++ "|"
+                    ++ re_isodate ++ ")"
 
 
 ----------------------------------------------------------------------------

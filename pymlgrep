@@ -14,15 +14,21 @@ USAGE = '''%prog [OPTIONS] KEYWORD [FILES]'''
 ## A pattern of a line of a beggining of log entry
 ## Default is something like 'Wed Nov 14 06:05:26 2012 GMT'
 ##
-dow   = '(Mon|Tue|Wed|Thu|Fri|Sat)'
-month = '(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
-dtime = '\d{1,2} \d\d:\d\d:\d\d( 20\d\d)?' # 31 12:34:56 2013
-tzone = '[A-Z]{3,5}'
-logheader = '^(%s )?%s %s (%s )?' % (dow, month, dtime, tzone)
-logheader_sample = 'Mon Jan 31 12:34:56 2013 PST'
+dow   = '((Mon|Tue|Wed|Thu|Fri|Sat),?\s+)?'
+month = '(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec),?\s+'
+date  = '\d{1,2},?'
+time  = '[0-2][0-9]:[0-5][0-9](:[0-5][0-9])?'
+year  = '(,?\s20\d\d)?'
+dty   = "{d}[ \t]{t}{y}".format(d=date, t=time, y=year)
+isodate = '20[0-9][0-9]-(0[0-9]|11|12)-(0[1-9]|[12][0-9]|3[01])'
+timestamp = '^({dow}{month}{dty}|{isodate})'.format(
+                dow=dow, month=month, dty=dty, isodate=isodate)
+timestamp_sample = 'Mon Jan 31 12:34:56 2013 PST'
+
+logheader = "^$|^(====*|----)*$"
 
 
-def mllgrep(pattern, ioin, ioout, logheader=logheader, combine=False):
+def mlrgrep(pattern, ioin, ioout, logheader=logheader, combine=False):
     is_matched = False
     if isinstance(logheader, basestring):
         re_logheader = re.compile(logheader)
@@ -49,6 +55,7 @@ def mllgrep(pattern, ioin, ioout, logheader=logheader, combine=False):
                 is_matched = True
                 for l in logical_line:
                     ioout.write(l)
+
     if is_matched and combine:
         ioout.write('\n')
 
@@ -56,7 +63,11 @@ def mllgrep(pattern, ioin, ioout, logheader=logheader, combine=False):
 def _optparse( args ):
     p = optparse.OptionParser(usage=USAGE)
     p.add_option("-r", "--rs", metavar="REGEX", default=logheader,
-            help="pattern of beginning of a log\n(default=%s)"%logheader_sample)
+            help="pattern of beginning of a log (default: /{}/)".format(logheader))
+    p.add_option("-t", "--timestamp", action='store_true', default=False,
+            help="Same as --rs=TIMESTAMP_REGEX, where the regex matches timestamps"
+                 "often used in log files, e.g., '2014-12-31 12:34:56' or "
+                 "'Dec 31 12:34:56'.\n(default={})".format(timestamp_sample))
     p.add_option("--combine", action='store_true', default=False,
             help="Combine multi-line log into one line.")
     return p.parse_args( args )
@@ -65,7 +76,11 @@ def _optparse( args ):
 def main( args ):
     opts, args = _optparse( args )
 
-    common_args = [sys.stdout, opts.logheader, opts.combine]
+    if opts.timestamp:
+        rs = timestamp
+    else:
+        rs = opts.rs
+    common_args = [sys.stdout, rs]
 
     if len( args ) >= 1 :
         pattern = re.compile( args[0] )
@@ -77,11 +92,11 @@ def main( args ):
         if len(args) >= 2 :
             for fname in args[1:]:
                 if fname == '-':
-                    mllgrep( pattern, sys.stdin, *common_args)
+                    mlrgrep( pattern, sys.stdin, *common_args)
                 else:
-                    mllgrep( pattern, open(fname), *common_args)
+                    mlrgrep( pattern, open(fname), *common_args)
         else:
-            mllgrep( pattern, sys.stdin, *common_args)
+            mlrgrep( pattern, sys.stdin, *common_args)
     except KeyboardInterrupt:
         sys.exit(0)
     except IOError as e:
@@ -90,8 +105,6 @@ def main( args ):
             sys.exit(0)
         else:
             raise
-
-
 
 
 
