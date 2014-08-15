@@ -25,7 +25,8 @@ import System.Directory
 import System.Environment
 import System.Exit
 import System.IO
-import Text.Regex
+-- import qualified Data.ByteString.Lazy as BS
+import Text.Regex.PCRE
 
 helpdoc = concat $ intersperse " "
     [
@@ -74,38 +75,36 @@ type Pattern  = Regex
 
 ----------------------------------------------------------------------------
 --
--- main logic
+-- line parsing and regex matching
 --
-containPattern :: Pattern -> String -> Bool
-containPattern re str = matchRegex re str /= Nothing
+
+-- Similar to =~ but RHS is Regex
+(==~) source re = match re source
 
 
-linesContainRegex :: [String] -> Pattern -> Bool
-linesContainRegex lines re = or $ map (containPattern re) lines
+matchAny lines re = or $ map (match re) lines
 
 
-matchRecord :: Bool -> [Pattern] -> LogEntry -> Bool
+-- matchRecord :: Bool -> [Pattern] -> LogEntry -> Bool
 matchRecord andor patterns (header, lines)
-    | andor     = and $ map (linesContainRegex lines) patterns
-    | otherwise = or  $ map (linesContainRegex lines) patterns
+    | andor     = and $ map (matchAny lines) patterns
+    | otherwise = or  $ map (matchAny lines) patterns
 
 
-toLogEntry :: Pattern -> [String] -> LogEntry
+-- toLogEntry :: Pattern -> [String] -> LogEntry
 toLogEntry _ [] = (Nothing, [])
-toLogEntry sep (l:ls) = if containPattern sep l
+toLogEntry sep (l:ls) = if (l ==~ sep)
                 then (Just l, ls)
                 else (Nothing, (l:ls)) -- First record without header(separator)
 
 
-lines2log :: Pattern -> [String] -> Log
 lines2log sep [] = []
 lines2log sep (l:ls) = head : tail
     where head = toLogEntry sep $ l:(takeWhile notsep ls)
           tail = lines2log sep (dropWhile notsep ls)
-          notsep line = not (containPattern sep line)
+          notsep line = not (line ==~ sep)
 
 
-log2lines :: Log -> [String]
 log2lines [] = []
 log2lines ((Nothing, l):[])  = l
 log2lines ((Just h, l):[])   = h : l
@@ -113,7 +112,10 @@ log2lines ((Nothing, l):logs) = l ++ (log2lines logs)
 log2lines ((Just h, l):logs) = h : l ++ (log2lines logs)
 
 
-
+----------------------------------------------------------------------------
+--
+-- main logic
+--
 hmlgrep' :: HmlGrepOpts -> [Pattern] -> Log -> Log
 hmlgrep' _ [] log = log
 hmlgrep' _ _ [] = []
@@ -121,6 +123,7 @@ hmlgrep' opts pattern log
     | opt_invert opts = filter (not.matcher) log
     | otherwise       = filter (matcher) log
     where matcher = matchRecord (opt_andor opts) pattern
+
 
 hmlgrep :: HmlGrepOpts -> [String] -> String -> (String, Bool)
 hmlgrep opts patterns indata =
@@ -135,7 +138,8 @@ hmlgrep opts patterns indata =
                      then show.length
                      else unlines.log2lines
           do_command = hmlgrep' opts (map toRegex patterns) logs
-          toRegex str = mkRegexWithOpts str True (not $ ignoreCase opts)
+          toRegex str = makeRegexOpts (ic) execBlank str
+          ic = if (ignoreCase opts) then compCaseless else compBlank
 
 
 ----------------------------------------------------------------------------
