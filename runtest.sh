@@ -1,7 +1,6 @@
 #!/bin/bash
 
 set -ue
-cmds=(hmlgrep amlgrep pymlgrep)
 
 t="test-result"
 mkdir -p "$t"
@@ -42,11 +41,13 @@ runtest () {
     return 0
 }
 
+cmds=(hmlgrep amlgrep pymlgrep)
+
 runtest dot      . test/test1.txt
 runtest foo1     foo test/test1.txt
 runtest FOO1     FOO test/test1.txt
 runtest foo1     --rs='^----' foo test/test1.txt
-#runtest foo2     foo test/test2.txt
+runtest foo2     foo test/test2.txt
 runtest FOO2     FOO test/test2.txt
 runtest notfound zzzzzzzz test/test1.txt
 runtest date     -t foo test/date.txt
@@ -55,4 +56,9 @@ runtest foo2_i   -i foo test/test2.txt
 runtest foo1_i   -c foo test/test1.txt
 runtest foo2_i   -c foo test/test2.txt
 
+cmds=(hmlgrep amlgrep)
 
+runtest foo_multi1  FOO foo test/test1.txt
+runtest foo_multi2  --and  FOO foo test/test1.txt
+runtest foo_multi3  foo hoge test/test2.txt
+runtest foo_multi3  --and foo hoge test/test2.txt
