@@ -3,10 +3,7 @@
 --
 {-
 TODOs:
-    * FIX: Text.Regex.Posix.String died: (ReturnCode 17,"illegal byte sequence")
     * FIX: '-' and '--' handling in optparse-applicative
-    * String to ByteString ? http://www.haskell.org/haskellwiki/Wc
-    * Automated tests
     * Implement match highlight
     * Show filenames with --count option for multiple file input
     * Use Boyer-Moore for non-regex patterns using stringsearch library:
@@ -18,17 +15,20 @@ INSTALL
     $ ghc --make hmlgrep.hs
 -}
 
+
 import Control.Monad
-import Data.List
+import qualified Data.List as DL
 import Options.Applicative
 import System.Directory
 import System.Environment
 import System.Exit
 import System.IO
--- import qualified Data.ByteString.Lazy as BS
 import Text.Regex.PCRE
+import Text.Regex.PCRE.ByteString.Lazy
+import qualified Data.ByteString.Lazy.Char8 as BS
 
-helpdoc = concat $ intersperse " "
+
+helpdoc = concat $ DL.intersperse " "
     [
       "grep(1) like tool, but \"record-oriented\", instead of line-oriented,",
       "to search and print multi-line log entries separated by empty lines,",
@@ -68,7 +68,8 @@ data HmlGrepOpts = HmlGrepOpts {
                    , opt_args :: [String]
                  }
 
-type LogEntry = (Maybe String, [String])
+-- type LogEntry = (Maybe String, [String])
+type LogEntry = (Maybe BS.ByteString, [BS.ByteString])
 type Log      = [LogEntry]
 type Pattern  = Regex
 
@@ -79,6 +80,7 @@ type Pattern  = Regex
 --
 
 -- Similar to =~ but RHS is Regex
+(==~) :: BS.ByteString -> Regex -> Bool
 (==~) source re = match re source
 
 
@@ -125,7 +127,7 @@ hmlgrep' opts pattern log
     where matcher = matchRecord (opt_andor opts) pattern
 
 
-hmlgrep :: HmlGrepOpts -> [String] -> String -> (String, Bool)
+hmlgrep :: HmlGrepOpts -> [String] -> BS.ByteString -> (BS.ByteString, Bool)
 hmlgrep opts patterns indata =
     if do_command == []
     then (toString do_command, False)
@@ -133,10 +135,10 @@ hmlgrep opts patterns indata =
     where recsep = if opt_timestamp opts
                    then timestamp_rs
                    else withDefault default_rs $ opt_rs opts
-          logs   = lines2log (toRegex recsep) $ lines indata
+          logs   = lines2log (toRegex recsep) $ BS.lines indata
           toString = if opt_count opts
-                     then show.length
-                     else unlines.log2lines
+                     then (BS.pack).show.length
+                     else (BS.unlines).log2lines
           do_command = hmlgrep' opts (map toRegex patterns) logs
           toRegex str = makeRegexOpts (ic) execBlank str
           ic = if (ignoreCase opts) then compCaseless else compBlank
@@ -146,12 +148,12 @@ hmlgrep opts patterns indata =
 --
 -- Run as a Unix command-line filter (pipe)
 --
-runPipe :: (String -> (String, Bool)) -> Handle -> [Handle] -> IO Bool
+-- runPipe :: (String -> (String, Bool)) -> Handle -> [Handle] -> IO Bool
 runPipe cmd outHandle inHandles = do
-    streams <- forM inHandles hGetContents
-    case (cmd $ concat streams) of
+    streams <- forM inHandles BS.hGetContents
+    case (cmd $ BS.concat streams) of
         (result, ret) -> do
-            hPutStr outHandle result
+            BS.hPutStr outHandle result
             return ret
 
 
