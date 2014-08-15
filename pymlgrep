@@ -28,36 +28,30 @@ timestamp_sample = 'Mon Jan 31 12:34:56 2013 PST'
 logheader = "^$|^(====*|----)*$"
 
 
-def mlrgrep(pattern, ioin, ioout, logheader=logheader, combine=False):
+def mlrgrep(count, pattern, ioin, ioout, re_logheader):
     is_matched = False
-    if isinstance(logheader, basestring):
-        re_logheader = re.compile(logheader)
-    else:
-        re_logheader = logheader
-
     logical_line = []
+    nr_matches = 0
     for curline in ioin:
         if re_logheader.match(curline):
-            if is_matched and combine:
-                ioout.write('\n')
             logical_line = []
             is_matched = False
 
-        if combine:
-            curline = curline.rstrip('\n') + ' '
-
         if is_matched == True:
-            ioout.write(curline)
+            if not count:
+                ioout.write(curline)
             continue
         else:
-            logical_line.append(curline)
+            if not count:
+                logical_line.append(curline)
             if pattern.search(curline):
+                nr_matches += 1
                 is_matched = True
-                for l in logical_line:
-                    ioout.write(l)
-
-    if is_matched and combine:
-        ioout.write('\n')
+                if not count:
+                    for l in logical_line:
+                        ioout.write(l)
+    if count:
+        ioout.write("{:d}\n".format(nr_matches))
 
 
 def _optparse( args ):
@@ -68,8 +62,8 @@ def _optparse( args ):
             help="Same as --rs=TIMESTAMP_REGEX, where the regex matches timestamps"
                  "often used in log files, e.g., '2014-12-31 12:34:56' or "
                  "'Dec 31 12:34:56'.\n(default={})".format(timestamp_sample))
-    p.add_option("--combine", action='store_true', default=False,
-            help="Combine multi-line log into one line.")
+    p.add_option("-c", "--count", action='store_true', default=False,
+            help="Print number of matches.")
     p.add_option("-i", "--ignore-case", action='store_true', default=False,
             help="Case insensitive match.")
     return p.parse_args( args )
@@ -99,11 +93,11 @@ def main( args ):
         if len(args) >= 2 :
             for fname in args[1:]:
                 if fname == '-':
-                    mlrgrep( pattern, sys.stdin, *common_args)
+                    mlrgrep(opts.count, pattern, sys.stdin, *common_args)
                 else:
-                    mlrgrep( pattern, open(fname), *common_args)
+                    mlrgrep(opts.count, pattern, open(fname), *common_args)
         else:
-            mlrgrep( pattern, sys.stdin, *common_args)
+            mlrgrep(pattern, sys.stdin, *common_args)
     except KeyboardInterrupt:
         sys.exit(0)
     except IOError as e:

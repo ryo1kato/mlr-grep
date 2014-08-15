@@ -52,5 +52,7 @@ runtest notfound zzzzzzzz test/test1.txt
 runtest date     -t foo test/date.txt
 runtest foo1_i   -i foo test/test1.txt
 runtest foo2_i   -i foo test/test2.txt
+runtest foo1_i   -c foo test/test1.txt
+runtest foo2_i   -c foo test/test2.txt
 
 

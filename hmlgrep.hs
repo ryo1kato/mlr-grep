@@ -137,8 +137,8 @@ hmlgrep opts patterns indata =
                    else withDefault default_rs $ opt_rs opts
           logs   = lines2log (toRegex recsep) $ BS.lines indata
           toString = if opt_count opts
-                     then (BS.pack).show.length
-                     else (BS.unlines).log2lines
+                     then (\x -> BS.pack (((show.length) x) ++ "\n"))
+                     else BS.unlines.log2lines
           do_command = hmlgrep' opts (map toRegex patterns) logs
           toRegex str = makeRegexOpts (ic) execBlank str
           ic = if (ignoreCase opts) then compCaseless else compBlank
