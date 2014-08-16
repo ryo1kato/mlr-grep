@@ -3,9 +3,10 @@
 --
 {-
 TODOs:
-    * FIX: '-' and '--' handling in optparse-applicative
-    * Implement match highlight
     * Show filenames with --count option for multiple file input
+    * Implement match highlight
+    * FIX: '-' and '--' handling in optparse-applicative
+        * https://github.com/pcapriotti/optparse-applicative/pull/99
     * Use Boyer-Moore for non-regex patterns using stringsearch library:
       http://hackage.haskell.org/package/stringsearch-0.3.3/docs/Data-ByteString-Search.html
 
@@ -88,9 +89,12 @@ matchAny lines re = or $ map (match re) lines
 
 
 -- matchRecord :: Bool -> [Pattern] -> LogEntry -> Bool
-matchRecord andor patterns (header, lines)
-    | andor     = and $ map (matchAny lines) patterns
-    | otherwise = or  $ map (matchAny lines) patterns
+matchRecord andor patterns (hdr, ls)
+    | andor     = and $ map (matchAny $ combined) patterns
+    | otherwise = or  $ map (matchAny $ combined) patterns
+      where combined = case hdr of
+                       Nothing -> ls
+                       Just x  -> (x:ls)
 
 
 -- toLogEntry :: Pattern -> [String] -> LogEntry
