@@ -5,6 +5,11 @@ set -ue
 t="test-result"
 mkdir -p "$t"
 
+strip_ctrl () {
+    sed -e $'s/\033[^m]*m//g' -e $'s/\017//g'
+}
+
+
 runtest () {
     name="$1"
     shift
@@ -12,7 +17,7 @@ runtest () {
     for cmd in "${cmds[@]}"
     do
         (
-            ./$cmd "$@" > "$t/$name.$cmd"
+            ./$cmd "$@" | strip_ctrl > "$t/$name.$cmd"
             echo $? > "$t/$name.$cmd.ret"
         )
     done
@@ -64,3 +69,11 @@ runtest foo_multi1  FOO foo test/test1.txt
 runtest foo_multi2  --and  FOO foo test/test1.txt
 runtest foo_multi3  foo hoge test/test2.txt
 runtest foo_multi3  --and foo hoge test/test2.txt
+runtest foo_multi3  --and foo logentry test/date.txt
+
+# FIXME: this test fails
+# runtest color_dot         --color . test/test1.txt
+runtest color_foo1        --color foo test/test1.txt
+runtest color_FOO1        --color FOO test/test1.txt
+runtest color_FOO1        -i --color FOO test/test1.txt
+runtest color_foo_multi3  --and foo logentry test/date.txt

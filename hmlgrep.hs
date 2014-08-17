@@ -85,7 +85,8 @@ type Pattern  = Regex
 --
 -- Match Highlights
 --
-hlCode = setSGRCode [SetColor Foreground Vivid Red]
+-- hlCode  = setSGRCode [SetColor Foreground Vivid Red]
+hlCode  = setSGRCode [SetSwapForegroundBackground True]
 hlReset = setSGRCode [Reset]
 
 highlightRange :: BS.ByteString -> (Int, Int) -> BS.ByteString
@@ -191,16 +192,17 @@ toRE opts str = makeRegexOpts (ic) execBlank str
 -- composeRE :: [String] -> Regex
 composeRE opts str = toRE opts $ DL.intercalate "|" str
 
-hmlgrep'' :: Regex -> Log -> Log
-hmlgrep'' re log = catMaybes $ map (matchRecordHighlight re) log
+hmlgrep_hl re log = catMaybes $ map (matchRecordHighlight re) log
 
 hmlgrep' :: HmlGrepOpts -> Bool -> [String] -> Log -> Log
 hmlgrep' _ _ [] log = []
 hmlgrep' _ _ _ [] = []
 hmlgrep' opts hl patterns log
-    | o_invert  = filter (not.matcher) log -- never highlights
-    | hl && not o_and = hmlgrep'' regexOR log
-    | otherwise = filter (matcher) log
+    | o_invert        = filter (not.matcher) log -- never highlights
+    | hl              = if o_and
+                        then hmlgrep_hl regexOR $ filter (matcher) log
+                        else hmlgrep_hl regexOR log
+    | otherwise       = filter (matcher) log
     where o_and    = opt_and opts
           o_invert = opt_invert opts
           regexs   = map (toRE opts) patterns
@@ -312,7 +314,7 @@ main = execParser opts >>= runWithOptions
                   help "Select non-matching records (same as grep -v).")
       <*> switch (short 'i' <> long "ignore-case" <>
                   help "Case insensitive matching. Default is case sensitive")
-      <*> switch (long "hl" <> long "highlight" <>
+      <*> switch (long "color" <> long "hl" <>
                   help "Highlight matches. Default is enabled iff stdout is a TTY")
       <*> switch (short 'm' <> long "mono" <>
                   help "Do not Highlight matches.")
