@@ -12,6 +12,7 @@ runtest () {
     for cmd in "${cmds[@]}"
     do
         (
+            set +e
             ./$cmd "$@" > "$t/$name.$cmd"
             echo $? > "$t/$name.$cmd.ret"
         )
