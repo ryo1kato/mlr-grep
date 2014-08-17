@@ -34,7 +34,6 @@ Being implemented by `awk`, it should ran on any Unix-like platform though I hav
 A Haskell implementation. Most actively maintained.
 Known issues:
 * `--count` shows total line numbers only for multiple files
-* `--color` is not implemented
 * "--" is stripped from argument (means you cannot search pattern "--" or search in a file named "--") This is a bug of `optparse-applicate` and fix is proposed [here](https://github.com/pcapriotti/optparse-applicative/pull/99)
 
 
