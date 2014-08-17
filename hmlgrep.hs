@@ -13,6 +13,7 @@ TODOs:
 INSTALL
     $ cabal install directory
     $ cabal install optparse-appricative
+    $ cabal install regex-pcre
     $ ghc --make hmlgrep.hs
 -}
 
@@ -260,9 +261,10 @@ runWithOptions :: HmlGrepOpts -> IO ()
 runWithOptions opts = do
     (ps, fs) <- splitArg (opt_args opts)
     istty <- queryTerminal stdOutput
+    let runPipeCmd = runPipe (mainProc (useColor opts istty) ps)
     ret <- if fs == []
-           then runPipe (mainProc (useColor opts istty) ps) stdout [stdin]
-           else forM fs openRO >>= runPipe (mainProc (useColor opts istty) ps) stdout
+           then runPipeCmd stdout [stdin]
+           else forM fs openRO >>= runPipeCmd stdout
     if ret
     then exitSuccess
     else exitFailure
@@ -281,6 +283,7 @@ splitArg' :: [String] -> [String] -> IO ([String], [String])
 splitArg' ps [] = return (ps, [])
 splitArg' ps (a:as)
     | a == "--"  = return (ps, as)
+    | a == "-" = return (ps, (a:as))
     | otherwise = do
         isFile <- doesFileExist a
         if isFile
