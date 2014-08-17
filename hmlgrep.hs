@@ -204,15 +204,15 @@ hmlgrep' opts hl patterns log
                         then hmlgrep_hl regexOR $ filter (matcher) log
                         else hmlgrep_hl regexOR log
     | otherwise       = filter (matcher) log
-    where o_and    = opt_and opts
+    where
+          -- when there's only one pattern, opt_and is meaningless
+          o_and    = (opt_and opts) && (length patterns) /= 1
           o_invert = opt_invert opts
           regexs   = map (toRE opts) patterns
           regexOR  = composeRE opts patterns
           matcher  = if o_and
                      then matchRecordAll regexs
                      else matchRecord regexOR
-          -- when there's only one pattern, opt_and is meaningless
-          regex_or = (length patterns) == 1 || not o_and
 
 
 hmlgrep :: HmlGrepOpts -> Bool -> [String] -> BS.ByteString -> (BS.ByteString, Bool)
@@ -234,7 +234,6 @@ hmlgrep opts hl patterns indata =
 --
 -- Run as a Unix command-line filter (pipe)
 --
--- runPipe :: (String -> (String, Bool)) -> Handle -> [Handle] -> IO Bool
 runPipe' cmd outHandle inHandles = do
     streams <- forM inHandles BS.hGetContents
     case (cmd $ BS.concat streams) of
@@ -256,23 +255,11 @@ withDefault def (Just val) = val
 withDefault def Nothing = def
 
 
-useColor opts istty =
-    if opt_invert opts
-    then False
-    else
-        if istty
-        then not $ opt_mono opts
-        else opt_highlight opts
-
-
--- OR for list of Bool wrapped in Monad
-mOR = liftM (foldl (||) False)
-
 runWithOptions :: HmlGrepOpts -> IO ()
 runWithOptions opts = do
     (ps, fs) <- splitArg (opt_args opts)
     istty <- queryTerminal stdOutput
-    let runPipeCmd = runPipe (mainProc (useColor opts istty) ps)
+    let runPipeCmd = runPipe (hmlgrep opts (useColor opts istty) ps)
     ret <- if fs == []
            then runPipeCmd stdout stdin
            else mOR (forM fs openRO >>= mapM (runPipeCmd stdout))
@@ -280,14 +267,18 @@ runWithOptions opts = do
     then exitSuccess
     else exitFailure
     where
-        mainProc = hmlgrep opts
+        mOR = liftM (foldl (||) False)
+        useColor opts istty =
+            if opt_invert opts
+            then False
+            else
+                if istty
+                then not $ opt_mono opts
+                else opt_highlight opts
+        openRO fname
+            | fname == "-"  = return stdin
+            | otherwise     = openFile fname ReadMode
 
-openRO fname
-    | fname == "-"  = return stdin
-    | otherwise     = openFile fname ReadMode
-
-fs = ["hoge", "piyo"]
-cmd _ = (BS.pack "hoge", True)
 
 ----------------------------------------------------------------------------
 -- Parse ARG1 ARG2 [--] ARG3 ARG4 to ([ARG1, ARG2], [ARG3, ARG4])

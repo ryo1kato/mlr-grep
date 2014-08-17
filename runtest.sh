@@ -65,8 +65,10 @@ runtest datetime1 -t foo test/date.txt
 runtest datetime2 -t 'logentry 2' test/date.txt
 
 runtest multifile foo test/test[23].txt
-runtest multifile -c foo test/test[23].txt
+# runtest multifile -c foo test/test[23].txt
 
+#----------------------------------------------------------------------
+# pymlgrep doesn't support multiple patterns
 cmds=(hmlgrep amlgrep)
 
 runtest foo_multi1  FOO foo test/test1.txt
@@ -74,6 +76,8 @@ runtest foo_multi2  --and  FOO foo test/test1.txt
 runtest foo_multi3  foo hoge test/test2.txt
 runtest foo_multi3  --and foo hoge test/test2.txt
 runtest foo_multi3  --and foo logentry test/date.txt
+# only one pattern; should be same as without "--and"
+runtest foo_multi4  --and foo test/test1.txt
 
 # FIXME: this test fails
 # runtest color_dot         --color . test/test1.txt
