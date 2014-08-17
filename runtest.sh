@@ -64,6 +64,9 @@ runtest foo2_i    -c foo test/test2.txt
 runtest datetime1 -t foo test/date.txt
 runtest datetime2 -t 'logentry 2' test/date.txt
 
+runtest multifile foo test/test[23].txt
+runtest multifile -c foo test/test[23].txt
+
 cmds=(hmlgrep amlgrep)
 
 runtest foo_multi1  FOO foo test/test1.txt
