@@ -18,15 +18,19 @@ INSTALL
 
 
 import Control.Monad
-import qualified Data.List as DL
+import Data.Int
+import Data.Maybe
 import Options.Applicative
+import System.Console.ANSI
 import System.Directory
-import System.Environment
 import System.Exit
 import System.IO
+import System.Posix.IO ( stdOutput )
+import System.Posix.Terminal ( queryTerminal )
 import Text.Regex.PCRE
 import Text.Regex.PCRE.ByteString.Lazy
 import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.List as DL
 
 
 helpdoc = concat $ DL.intersperse " "
@@ -60,12 +64,14 @@ timestamp_rs = "^(" ++ re_dow ++ re_month ++ re_dty ++ "|"
 ----------------------------------------------------------------------------
 
 data HmlGrepOpts = HmlGrepOpts {
-                     opt_andor  :: Bool
+                     opt_and  :: Bool
                    , opt_rs :: Maybe String
                    , opt_timestamp :: Bool
                    , opt_count  :: Bool
                    , opt_invert :: Bool
                    , ignoreCase :: Bool
+                   , opt_highlight :: Bool
+                   , opt_mono :: Bool
                    , opt_args :: [String]
                  }
 
@@ -77,6 +83,47 @@ type Pattern  = Regex
 
 ----------------------------------------------------------------------------
 --
+-- Match Highlights
+--
+-- hlCode  = setSGRCode [SetColor Foreground Vivid Red]
+hlCode  = setSGRCode [SetSwapForegroundBackground True]
+hlReset = setSGRCode [Reset]
+
+highlightRange :: BS.ByteString -> (Int, Int) -> BS.ByteString
+highlightRange str mch = BS.concat [ (BS.take start str), (BS.pack hlCode) ,
+                       (BS.take len $ BS.drop start str), (BS.pack hlReset) ,
+                       (BS.drop (start+len) str)]
+    -- ByteString versions of 'take', 'drop', etc. take Int64, not Int
+    where start = fromIntegral (fst mch) :: Int64
+          len   = fromIntegral (snd mch) :: Int64
+
+-- lighlight matches in ByteString with _reverse sorted_ list of matches
+-- It has to be reversed so that we don't have to re-calculate offset everytime
+-- control codes are inserted.
+highlightRangesRSorted :: BS.ByteString -> [(Int, Int)] -> BS.ByteString
+highlightRangesRSorted str [] = str
+highlightRangesRSorted str (r:rs) = highlightRangesRSorted (highlightRange str r) rs
+
+
+allMatchAsList re str = getAllMatches $
+    (match re str :: AllMatches [] (MatchOffset, MatchLength))
+
+
+highlightAllMatches re str =
+    if m == []
+    then Nothing
+    else Just (highlightRangesRSorted str (reverse m))
+    where m = allMatchAsList re str
+
+highlightAllMatchesLines re ls =
+    if concat ms == []
+    then Nothing
+    else Just (zipWith highlight ls ms)
+    where ms = map (allMatchAsList re) ls
+          highlight str m = highlightRangesRSorted str (reverse m)
+
+----------------------------------------------------------------------------
+--
 -- line parsing and regex matching
 --
 
@@ -84,17 +131,6 @@ type Pattern  = Regex
 (==~) :: BS.ByteString -> Regex -> Bool
 (==~) source re = match re source
 
-
-matchAny lines re = or $ map (match re) lines
-
-
--- matchRecord :: Bool -> [Pattern] -> LogEntry -> Bool
-matchRecord andor patterns (hdr, ls)
-    | andor     = and $ map (matchAny $ combined) patterns
-    | otherwise = or  $ map (matchAny $ combined) patterns
-      where combined = case hdr of
-                       Nothing -> ls
-                       Just x  -> (x:ls)
 
 
 -- toLogEntry :: Pattern -> [String] -> LogEntry
@@ -117,35 +153,80 @@ log2lines ((Just h, l):[])   = h : l
 log2lines ((Nothing, l):logs) = l ++ (log2lines logs)
 log2lines ((Just h, l):logs) = h : l ++ (log2lines logs)
 
+logEntry2lines (hdr,ls) = case hdr of
+                               Nothing -> ls
+                               Just x  -> (x:ls)
+
+
+matchAny lines re = or $ map (match re) lines
+
+matchRecord p le = matchAny (logEntry2lines le) p
+
+matchRecordAll ps le = and $ map (matchAny $ logEntry2lines le) ps
+
+matchRecordHighlight p (maybehdr,ls)
+    | isNothing maybehdr =
+        if isNothing hl_ls
+        then Nothing
+        else Just (Nothing, fromMaybe ls hl_ls)
+    | otherwise =
+        if isNothing hl_hdr && isNothing hl_ls
+        then Nothing
+        else Just (Just (fromMaybe hdr hl_hdr), fromMaybe ls hl_ls)
+        where
+            hl_hdr = highlightAllMatches p hdr
+            hl_ls  = highlightAllMatchesLines p ls
+            hdr    = fromJust maybehdr
+
 
 ----------------------------------------------------------------------------
 --
 -- main logic
 --
-hmlgrep' :: HmlGrepOpts -> [Pattern] -> Log -> Log
-hmlgrep' _ [] log = log
-hmlgrep' _ _ [] = []
-hmlgrep' opts pattern log
-    | opt_invert opts = filter (not.matcher) log
+
+toRE opts str = makeRegexOpts (ic) execBlank str
+    where ic = if (ignoreCase opts) then compCaseless else compBlank
+
+-- all RE strings combined with '|'
+-- used for OR search and highlights
+-- composeRE :: [String] -> Regex
+composeRE opts str = toRE opts $ DL.intercalate "|" str
+
+hmlgrep_hl re log = catMaybes $ map (matchRecordHighlight re) log
+
+hmlgrep' :: HmlGrepOpts -> Bool -> [String] -> Log -> Log
+hmlgrep' _ _ [] log = []
+hmlgrep' _ _ _ [] = []
+hmlgrep' opts hl patterns log
+    | o_invert        = filter (not.matcher) log -- never highlights
+    | hl              = if o_and
+                        then hmlgrep_hl regexOR $ filter (matcher) log
+                        else hmlgrep_hl regexOR log
     | otherwise       = filter (matcher) log
-    where matcher = matchRecord (opt_andor opts) pattern
+    where o_and    = opt_and opts
+          o_invert = opt_invert opts
+          regexs   = map (toRE opts) patterns
+          regexOR  = composeRE opts patterns
+          matcher  = if o_and
+                     then matchRecordAll regexs
+                     else matchRecord regexOR
+          -- when there's only one pattern, opt_and is meaningless
+          regex_or = (length patterns) == 1 || not o_and
 
 
-hmlgrep :: HmlGrepOpts -> [String] -> BS.ByteString -> (BS.ByteString, Bool)
-hmlgrep opts patterns indata =
+hmlgrep :: HmlGrepOpts -> Bool -> [String] -> BS.ByteString -> (BS.ByteString, Bool)
+hmlgrep opts hl patterns indata =
     if do_command == []
     then (toString do_command, False)
     else (toString do_command, True)
     where recsep = if opt_timestamp opts
                    then timestamp_rs
                    else withDefault default_rs $ opt_rs opts
-          logs   = lines2log (toRegex recsep) $ BS.lines indata
+          logs   = lines2log (toRE opts recsep) $ BS.lines indata
           toString = if opt_count opts
                      then (\x -> BS.pack (((show.length) x) ++ "\n"))
                      else BS.unlines.log2lines
-          do_command = hmlgrep' opts (map toRegex patterns) logs
-          toRegex str = makeRegexOpts (ic) execBlank str
-          ic = if (ignoreCase opts) then compCaseless else compBlank
+          do_command = hmlgrep' opts hl patterns logs
 
 
 ----------------------------------------------------------------------------
@@ -166,12 +247,22 @@ withDefault def (Just val) = val
 withDefault def Nothing = def
 
 
+useColor opts istty =
+    if opt_invert opts
+    then False
+    else
+        if istty
+        then not $ opt_mono opts
+        else opt_highlight opts
+
+
 runWithOptions :: HmlGrepOpts -> IO ()
 runWithOptions opts = do
     (ps, fs) <- splitArg (opt_args opts)
+    istty <- queryTerminal stdOutput
     ret <- if fs == []
-           then runPipe (mainProc ps) stdout [stdin]
-           else forM fs openRO >>= runPipe (mainProc ps) stdout
+           then runPipe (mainProc (useColor opts istty) ps) stdout [stdin]
+           else forM fs openRO >>= runPipe (mainProc (useColor opts istty) ps) stdout
     if ret
     then exitSuccess
     else exitFailure
@@ -189,7 +280,7 @@ runWithOptions opts = do
 splitArg' :: [String] -> [String] -> IO ([String], [String])
 splitArg' ps [] = return (ps, [])
 splitArg' ps (a:as)
-    | a == "-"  = return (ps, as)
+    | a == "--"  = return (ps, as)
     | otherwise = do
         isFile <- doesFileExist a
         if isFile
@@ -197,7 +288,6 @@ splitArg' ps (a:as)
         else (splitArg' (ps++[a]) as)
 
 splitArg = splitArg' []
-
 
 main :: IO ()
 main = execParser opts >>= runWithOptions
@@ -224,6 +314,10 @@ main = execParser opts >>= runWithOptions
                   help "Select non-matching records (same as grep -v).")
       <*> switch (short 'i' <> long "ignore-case" <>
                   help "Case insensitive matching. Default is case sensitive")
+      <*> switch (long "color" <> long "hl" <>
+                  help "Highlight matches. Default is enabled iff stdout is a TTY")
+      <*> switch (short 'm' <> long "mono" <>
+                  help "Do not Highlight matches.")
       <*> some (argument str (metavar "PATTERN[...] [--] [FILES...]"))
 
 
