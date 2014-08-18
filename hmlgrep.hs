@@ -257,13 +257,12 @@ runWithOptions opts = do
     ret <- if fs == []
            then runPipeCmd stdin
            else if opt_count opts && length fs > 1
-                then mOR (return fs >>= mapM runPipeCmdPrint)
-                else mOR (forM fs openRO >>= mapM runPipeCmd)
+                then (liftM or) (return fs >>= mapM runPipeCmdPrint)
+                else (liftM or) (forM fs openRO >>= mapM runPipeCmd)
     if ret
     then exitSuccess
     else exitFailure
     where
-        mOR = liftM (foldl (||) False)
         useColor opts istty =
             if opt_invert opts
             then False
