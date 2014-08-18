@@ -9,7 +9,7 @@ print_help () {
 cat <<EOF
 Usage: $0 [OPTIONS] [--] PATTERNS... [--] [FILES...]
   grep(1) like tool to search multi-line log entries separated by empty
-  lines or '\n---------\n' etc. Internally it's just an awk(1) wrapper.
+  lines or '\n----\n' etc. Internally it's just an awk(1) wrapper.
 
   If an argument is a name of existing file or '-', that argument and
   everything after that will be treated as filenames to read from.
@@ -47,14 +47,9 @@ WARN () { echo "$0: WARNING: $*" >&2; }
 
 sanitize_pattern () {
     local pattern="$1"
-    case $pattern in
-        '^'*) pattern="${pattern/^/\\n}"       ;;
-    esac
-    case $pattern in
-        *'\$') : it is escaped - ignore        ;;
-        *[^\\]'$') pattern="${pattern/\$/\\n}" ;;
-    esac
-    echo "${pattern//\//\/}"
+    echo "$pattern" | sed -e 's/^\^/\\n/g' \
+                          -e 's@\([^\\]\|\\\\\)\$@\1\\n@g' \
+                          -e 's@\([^\[\\]\|\\\\\)\^@\1\\n@g'
 }
 
 #################################################################
@@ -102,7 +97,7 @@ opt_count='no'
 opt_color='auto'
 opt_ignorecase='no'
 # traditional awk doesn't support /r{m,n}/ syntax nor back-reference.
-opt_RS='\n\n|\n(----*|====*)\n'
+opt_RS='\n\n|\n(=====*|-----*)\n'
 # default value of ORS is '\n', which we don't like because we use oldRT
 opt_dump='no'
 while [ $# -ge 1 ]
@@ -200,14 +195,14 @@ fi
 # if RS is a header of a record like timestamp info.
 if [ "$opt_count" != "yes" ]
 then
-    # use substr to remove leading '\n' from RS - it's from
+    # use substr() to remove leading '\n' from oldRT - it's from
     # last line of previous record.
     #awkprint="printf \"%s\", substr(oldRT, 2);$awkprint;printf \"\n\""
     awkprint="printf \"%s\", substr(oldRT, 2);$awkprint"
 
-    # RT is empty, it's the end of the record
-    # ... that means there's no one to consume last '\n' as part of separator
-    # (=header of the next record)
+    # If RT is empty, it's the end of the record
+    # ... that means there's no one to consume last '\n' as part of a separator
+    # (=header) of the next record
     awkprint="$awkprint;"'if(RT != "")printf "\n"'
 fi
 

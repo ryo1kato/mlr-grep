@@ -22,7 +22,7 @@ runtest () {
             echo $? > "$t/$name.$cmd.ret"
         )
     done
-    reference_cmd="${cmds[1]}"
+    reference_cmd="${cmds[0]}"
     for cmd in "${cmds[@]}"
     do
         if [ $cmd = $reference_cmd ]

@@ -25,7 +25,7 @@ timestamp = '^({dow}{month}{dty}|{isodate})'.format(
                 dow=dow, month=month, dty=dty, isodate=isodate)
 timestamp_sample = 'Mon Jan 31 12:34:56 2013 PST'
 
-logheader = "^$|^(====*|----)*$"
+logheader = "^$|^(=====*|-----*)$"
 
 
 def mlrgrep(count, pattern, ioin, ioout, re_logheader):
