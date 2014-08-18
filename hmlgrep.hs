@@ -14,6 +14,7 @@ INSTALL
     $ cabal install directory
     $ cabal install optparse-appricative
     $ cabal install regex-pcre
+    $ cabal install ansi-terminal
     $ ghc --make hmlgrep.hs
 -}
 
@@ -48,7 +49,7 @@ helpdoc = concat $ DL.intersperse " "
       "reading from it."
     ]
 
-default_rs   = "^$|^(====*|----)*$"
+default_rs   = "^$|^(=====*|-----*)$"
 
 re_dow     = "((Mon|Tue|Wed|Thu|Fri|Sat),?[ \t]+)?"
 re_month   = "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Dec),?[ \t]"
