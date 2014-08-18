@@ -95,6 +95,8 @@ def main( args ):
                 if fname == '-':
                     mlrgrep(opts.count, pattern, sys.stdin, *common_args)
                 else:
+                    if opts.count and len(args) >= 3:
+                        sys.stdout.write(fname + ":")
                     mlrgrep(opts.count, pattern, open(fname), *common_args)
         else:
             mlrgrep(pattern, sys.stdin, *common_args)

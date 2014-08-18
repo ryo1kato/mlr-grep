@@ -260,10 +260,14 @@ runWithOptions :: HmlGrepOpts -> IO ()
 runWithOptions opts = do
     (ps, fs) <- splitArg (opt_args opts)
     istty <- queryTerminal stdOutput
-    let runPipeCmd = runPipe (hmlgrep opts (useColor opts istty) ps)
+    let runPipeCmd = runPipe (hmlgrep opts (useColor opts istty) ps) stdout
+    let runPipeCmdPrint fname =
+            hPutStr stdout (fname ++ ":") >> openRO fname >>= runPipeCmd
     ret <- if fs == []
-           then runPipeCmd stdout stdin
-           else mOR (forM fs openRO >>= mapM (runPipeCmd stdout))
+           then runPipeCmd stdin
+           else if opt_count opts && length fs > 1
+                then mOR (return fs >>= mapM runPipeCmdPrint)
+                else mOR (forM fs openRO >>= mapM runPipeCmd)
     if ret
     then exitSuccess
     else exitFailure

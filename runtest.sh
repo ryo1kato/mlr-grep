@@ -1,5 +1,7 @@
 #!/bin/bash
 
+make
+
 set -ue
 
 t="test-result"
@@ -59,13 +61,14 @@ runtest notfound  zzzzzzzz test/test1.txt
 runtest date      -t foo test/date.txt
 runtest foo1_i    -i foo test/test1.txt
 runtest foo2_i    -i foo test/test2.txt
-runtest foo1_i    -c foo test/test1.txt
-runtest foo2_i    -c foo test/test2.txt
+runtest foo1_c    -c foo test/test1.txt
+runtest foo2_c    -c foo test/test2.txt
 runtest datetime1 -t foo test/date.txt
 runtest datetime2 -t 'logentry 2' test/date.txt
 
-runtest multifile foo test/test[23].txt
-# runtest multifile -c foo test/test[23].txt
+runtest multifile        foo test/test[23].txt
+runtest multifile_count1 -c foo test/test[12].txt
+runtest multifile_count2 -c -i foo test/test[123].txt
 
 #----------------------------------------------------------------------
 # pymlgrep doesn't support multiple patterns
