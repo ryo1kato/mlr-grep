@@ -14,6 +14,7 @@ INSTALL
     $ cabal install directory
     $ cabal install optparse-appricative
     $ cabal install regex-pcre
+    $ cabal install ansi-terminal
     $ ghc --make hmlgrep.hs
 -}
 
