@@ -219,7 +219,7 @@ hmlgrep opts hl patterns indata =
     else (toString do_command, True)
     where recsep = if opt_timestamp opts
                    then timestamp_rs
-                   else withDefault default_rs $ opt_rs opts
+                   else fromMaybe default_rs (opt_rs opts)
           logs   = lines2log (toRE opts recsep) $ BS.lines indata
           toString = if opt_count opts
                      then (\x -> BS.pack (((show.length) x) ++ "\n"))
@@ -245,11 +245,6 @@ runPipe cmd outHandle inHandle = do
         (result, ret) -> do
             BS.hPutStr outHandle result
             return ret
-
-
-withDefault :: a -> (Maybe a) -> a
-withDefault def (Just val) = val
-withDefault def Nothing = def
 
 
 runWithOptions :: HmlGrepOpts -> IO ()
