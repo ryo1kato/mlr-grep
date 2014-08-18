@@ -3,10 +3,9 @@
 --
 {-
 TODOs:
-    * Show filenames with --count option for multiple file input
-    * Implement match highlight
     * FIX: '-' and '--' handling in optparse-applicative
         * https://github.com/pcapriotti/optparse-applicative/pull/99
+    * Use Cabal for build?
     * Use Boyer-Moore for non-regex patterns using stringsearch library:
       http://hackage.haskell.org/package/stringsearch-0.3.3/docs/Data-ByteString-Search.html
 
@@ -134,8 +133,6 @@ highlightAllMatchesLines re ls =
 (==~) source re = match re source
 
 
-
--- toLogEntry :: Pattern -> [String] -> LogEntry
 toLogEntry _ [] = (Nothing, [])
 toLogEntry sep (l:ls) = if (l ==~ sep)
                 then (Just l, ls)
@@ -191,7 +188,6 @@ toRE opts str = makeRegexOpts (ic) execBlank str
 
 -- all RE strings combined with '|'
 -- used for OR search and highlights
--- composeRE :: [String] -> Regex
 composeRE opts str = toRE opts $ DL.intercalate "|" str
 
 hmlgrep_hl re log = catMaybes $ map (matchRecordHighlight re) log
