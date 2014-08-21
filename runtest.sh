@@ -51,13 +51,22 @@ runtest () {
 
 cmds=(hmlgrep amlgrep pymlgrep)
 
+if [ $# -gt 1 ]
+then
+    if runtest MANUAL "$@"
+    then
+        echo "Test SUCCESS"
+    fi
+    exit
+fi
+
 runtest dot       . test/test1.txt
 runtest foo1      foo test/test1.txt
 runtest FOO1      FOO test/test1.txt
-runtest foo1      --rs='^----' foo test/test1.txt
 runtest foo2      foo test/test2.txt
 runtest FOO2      FOO test/test2.txt
 runtest notfound  zzzzzzzz test/test1.txt
+
 runtest date      -t foo test/date.txt
 runtest foo1_i    -i foo test/test1.txt
 runtest foo2_i    -i foo test/test2.txt
@@ -65,6 +74,11 @@ runtest foo1_c    -c foo test/test1.txt
 runtest foo2_c    -c foo test/test2.txt
 runtest datetime1 -t foo test/date.txt
 runtest datetime2 -t 'logentry 2' test/date.txt
+
+runtest foo1rs    --rs='^----' foo test/test1.txt
+runtest foo1rs2   --rs='----' foo test/test1.txt
+runtest foo1rs3   --rs='----$' foo test/test1.txt
+runtest ba1rs2    --rs '2014|Mon|Jan' ba test/date.txt
 
 runtest multifile        foo test/test[23].txt
 runtest multifile_count1 -c foo test/test[12].txt
@@ -83,8 +97,10 @@ runtest foo_multi3  --and foo logentry test/date.txt
 runtest foo_multi4  --and foo test/test1.txt
 
 # FIXME: this test fails
-# runtest color_dot         --color . test/test1.txt
+runtest color_dot         --color . test/test1.txt
 runtest color_foo1        --color foo test/test1.txt
 runtest color_FOO1        --color FOO test/test1.txt
 runtest color_FOO1        -i --color FOO test/test1.txt
 runtest color_foo_multi3  --and foo logentry test/date.txt
+runtest color_rs          --rs '2014' --and ba 2014 loge test/date.txt
+runtest color_rs2         --rs '2014|Mon|Jan' ba test/date.txt

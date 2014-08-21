@@ -45,11 +45,37 @@ set -eu
 DIE () { echo "$0: ERROR: $*" >&2; exit 1; }
 WARN () { echo "$0: WARNING: $*" >&2; }
 
+# Because AWK's RS is not line-oriented, we can't use ^ or $ to match
+# beginnings or ends of lines; we need to use literal '\n' 
+# But for compatibility to hmlgrep/pymlgrep and ease of use, 
+# convert them to '\n' here, but only if there's no '\n' in pattern
 sanitize_pattern () {
     local pattern="$1"
-    echo "$pattern" | sed -e 's/^\^/\\n/g' \
-                          -e 's@\([^\\]\|\\\\\)\$@\1\\n@g' \
-                          -e 's@\([^\[\\]\|\\\\\)\^@\1\\n@g'
+    if [[ $pattern =~ \n ]]
+    then
+        echo "${pattern//\//\\/}"
+    else
+        # '$' is an  ordinary  character except at the end of the RE or(!)
+        # the end of a parenthesized subexpression... [from regex(7) manpage.]
+        echo "$pattern" | sed  \
+            -e 's@/@\\/@g' \
+            -e 's@\(^\||\|(\)\^@\1(\\n|^)@g' \
+            -e 's@\([^\\]\|\\\\\)\$\([\|$]\|$\)@\1(\\n|$)\2@g'
+    fi
+}
+
+# RS (or RT/oldRT) must have a '\n' at its beginning to
+# make semantics consistent with hmlgrep and pymlgrep. 
+sanitize_pattern_RS () {
+    local pattern="$1"
+    if [[ $pattern =~ (^|\n|\||\()[\n\^] ]]
+    then
+        sanitize_pattern "$pattern"
+    else
+        sanitize_pattern "$pattern" | sed \
+            -e 's@^@\\n[^\\n]*(@g' \
+            -e 's@$@)@g'
+    fi
 }
 
 #################################################################
@@ -96,9 +122,7 @@ opt_invert='no'
 opt_count='no'
 opt_color='auto'
 opt_ignorecase='no'
-# traditional awk doesn't support /r{m,n}/ syntax nor back-reference.
 opt_RS='\n\n|\n(=====*|-----*)\n'
-# default value of ORS is '\n', which we don't like because we use oldRT
 opt_dump='no'
 while [ $# -ge 1 ]
 do
@@ -141,8 +165,9 @@ fi
 
 [ "$opt_invert" = yes ] && opt_conjunction="N${opt_conjunction}"
 IFS='\n'
-RS="$(sanitize_pattern "$opt_RS")"
-# gawk specific: re-interval
+RS="$(sanitize_pattern_RS "$opt_RS")"
+# default value of ORS is '\n', which we don't like because we use oldRT
+# gawk specific: re-interval for /r{m,n}/ expression
 awkargs=('-W' 're-interval' -F "$IFS" -v RS="$RS" -v ORS='')
 
 if [ "$opt_ignorecase" = 'yes' ]
@@ -166,7 +191,7 @@ fi
 
 first_pattern="$(sanitize_pattern "$1")"
 awkpat="$first_pattern"  # OR logic
-awkcond="\$0 ~ /$first_pattern/" # AND logic
+awkcond="oldRT \$0 ~ /$first_pattern/" # AND logic
 shift
 while [ $# -ge 1 ] && [ ! -e "$1" ]
 do
@@ -177,7 +202,7 @@ do
         --) shift; break;;
     esac
     awkpat="${awkpat}|$pattern"
-    awkcond="${awkcond} && \$0 ~ /$pattern/"
+    awkcond="${awkcond} && oldRT \$0 ~ /$pattern/"
 shift; done
 
 
@@ -195,22 +220,26 @@ fi
 # if RS is a header of a record like timestamp info.
 if [ "$opt_count" != "yes" ]
 then
-    # use substr() to remove leading '\n' from oldRT - it's from
+    # use substr() to remove leading '\n' from oldRT - it's of
     # last line of previous record.
-    #awkprint="printf \"%s\", substr(oldRT, 2);$awkprint;printf \"\n\""
-    awkprint="printf \"%s\", substr(oldRT, 2);$awkprint"
-
-    # If RT is empty, it's the end of the record
+    oldrt='if(substr(oldRT,1,1)=="\n"){h=substr(oldRT,2)}else{h=oldRT};'
+    if [ "$highlight" = 'yes' ]
+    then
+        awkprint="$oldrt;gsub(/$awkpat/,\"$(tput rev)&$(tput sgr0)\",h);print h;$awkprint"
+    else
+        awkprint="$oldrt;print h;$awkprint"
+    fi
+    # If RT is empty, it's the end of the records (i.e., end of file)
     # ... that means there's no one to consume last '\n' as part of a separator
     # (=header) of the next record
     awkprint="$awkprint;"'if(RT != "")printf "\n"'
 fi
 
 case $opt_conjunction in
-    OR)   awkstatement="       /$awkpat/   {i++;$awkprint}";;
-    NOR)  awkstatement="\$0 !~ /$awkpat/   {i++;$awkprint}";;
-    AND)  awkstatement="{if   (${awkcond}) {i++;$awkprint}}";;
-    NAND) awkstatement="{if (!(${awkcond})){i++;$awkprint}}";;
+    OR)    awkstatement="oldRT \$0 ~ /$awkpat/ {i++;$awkprint}";;
+    NOR)  awkstatement="oldRT \$0 !~ /$awkpat/ {i++;$awkprint}";;
+    AND)        awkstatement="{if (${awkcond}) {i++;$awkprint}}";;
+    NAND)     awkstatement="{if (!(${awkcond})){i++;$awkprint}}";;
 esac
 awkstatement="${awkstatement} {oldRT=RT}"
 
