@@ -1,6 +1,9 @@
 --
 -- hmlgrep - Haskell Multi-Line Grep
 --
+
+{-# LANGUAGE CPP #-}
+
 {-
 TODOs:
     * FIX: '-' and '--' handling in optparse-applicative
@@ -25,13 +28,27 @@ import Options.Applicative
 import System.Console.ANSI
 import System.Directory
 import System.Exit
-import System.IO
 import System.Posix.IO ( stdOutput )
 import System.Posix.Terminal ( queryTerminal )
 import Text.Regex.PCRE
+import qualified Data.List as DL
+
+#if defined(USE_STRING)
+---- Using String is x30 slower than ByteString.Lazy ----
+import Prelude as BS
+import System.IO as BS
+type ByteStr = String
+type BSInt = Int
+pack = id
+#else
+---- ByteString.Lazy ----
+import System.IO
 import Text.Regex.PCRE.ByteString.Lazy
 import qualified Data.ByteString.Lazy.Char8 as BS
-import qualified Data.List as DL
+type ByteStr = BS.ByteString
+type BSInt = Int64
+pack = BS.pack
+#endif
 
 
 helpdoc = concat $ DL.intersperse " "
@@ -77,7 +94,7 @@ data HmlGrepOpts = HmlGrepOpts {
                  }
 
 -- type LogEntry = (Maybe String, [String])
-type LogEntry = (Maybe BS.ByteString, [BS.ByteString])
+type LogEntry = (Maybe ByteStr, [ByteStr])
 type Log      = [LogEntry]
 type Pattern  = Regex
 
@@ -90,18 +107,18 @@ type Pattern  = Regex
 hlCode  = setSGRCode [SetSwapForegroundBackground True]
 hlReset = setSGRCode [Reset]
 
-highlightRange :: BS.ByteString -> (Int, Int) -> BS.ByteString
-highlightRange str mch = BS.concat [ (BS.take start str), (BS.pack hlCode) ,
-                       (BS.take len $ BS.drop start str), (BS.pack hlReset) ,
+highlightRange :: ByteStr -> (Int, Int) -> ByteStr
+highlightRange str mch = BS.concat [ (BS.take start str), (pack hlCode) ,
+                       (BS.take len $ BS.drop start str), (pack hlReset) ,
                        (BS.drop (start+len) str)]
     -- ByteString versions of 'take', 'drop', etc. take Int64, not Int
-    where start = fromIntegral (fst mch) :: Int64
-          len   = fromIntegral (snd mch) :: Int64
+    where start = fromIntegral (fst mch) :: BSInt
+          len   = fromIntegral (snd mch) :: BSInt
 
 -- lighlight matches in ByteString with _reverse sorted_ list of matches
 -- It has to be reversed so that we don't have to re-calculate offset everytime
 -- control codes are inserted.
-highlightRangesRSorted :: BS.ByteString -> [(Int, Int)] -> BS.ByteString
+highlightRangesRSorted :: ByteStr -> [(Int, Int)] -> ByteStr
 highlightRangesRSorted str [] = str
 highlightRangesRSorted str (r:rs) = highlightRangesRSorted (highlightRange str r) rs
 
@@ -129,7 +146,7 @@ highlightAllMatchesLines re ls =
 --
 
 -- Similar to =~ but RHS is Regex
-(==~) :: BS.ByteString -> Regex -> Bool
+(==~) :: ByteStr -> Regex -> Bool
 (==~) source re = match re source
 
 
@@ -212,7 +229,7 @@ hmlgrep' opts hl patterns log
                      else matchRecord regexOR
 
 
-hmlgrep :: HmlGrepOpts -> Bool -> [String] -> BS.ByteString -> (BS.ByteString, Bool)
+hmlgrep :: HmlGrepOpts -> Bool -> [String] -> ByteStr -> (ByteStr, Bool)
 hmlgrep opts hl patterns indata =
     if do_command == []
     then (toString do_command, False)
@@ -222,7 +239,7 @@ hmlgrep opts hl patterns indata =
                    else fromMaybe default_rs (opt_rs opts)
           logs   = lines2log (toRE opts recsep) $ BS.lines indata
           toString = if opt_count opts
-                     then (\x -> BS.pack (((show.length) x) ++ "\n"))
+                     then (\x -> pack (((show.length) x) ++ "\n"))
                      else BS.unlines.log2lines
           do_command = hmlgrep' opts hl patterns logs
 
@@ -238,7 +255,7 @@ runPipe' cmd outHandle inHandles = do
             BS.hPutStr outHandle result
             return ret
 
-runPipe :: (BS.ByteString -> (BS.ByteString, Bool)) -> Handle -> Handle -> IO Bool
+runPipe :: (ByteStr -> (ByteStr, Bool)) -> Handle -> Handle -> IO Bool
 runPipe cmd outHandle inHandle = do
     stream <- BS.hGetContents inHandle
     case cmd stream of
