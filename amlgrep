@@ -57,10 +57,10 @@ sanitize_pattern () {
     else
         # '$' is an  ordinary  character except at the end of the RE or(!)
         # the end of a parenthesized subexpression... [from regex(7) manpage.]
-        echo "$pattern" | sed  \
+        echo "$pattern" | sed -E \
             -e 's@/@\\/@g' \
-            -e 's@\(^\||\|(\)\^@\1(\\n|^)@g' \
-            -e 's@\([^\\]\|\\\\\)\$\([\|$]\|$\)@\1(\\n|$)\2@g'
+            -e 's@(^|\||\()\^@\1(\\n|^)@g' \
+            -e 's@([^\\]|\\\\)\$([|$]|$)@\1(\\n|$)\2@g'
     fi
 }
 
@@ -72,7 +72,7 @@ sanitize_pattern_RS () {
     then
         sanitize_pattern "$pattern"
     else
-        sanitize_pattern "$pattern" | sed \
+        sanitize_pattern "$pattern" | sed -E \
             -e 's@^@\\n[^\\n]*(@g' \
             -e 's@$@)@g'
     fi
@@ -193,10 +193,9 @@ first_pattern="$(sanitize_pattern "$1")"
 awkpat="$first_pattern"  # OR logic
 awkcond="oldRT \$0 ~ /$first_pattern/" # AND logic
 shift
-while [ $# -ge 1 ] && [ ! -e "$1" ]
+while [ $# -ge 1 ] && [ ! -r "$1" -o -d "$1" ]
 do
     pattern="$(sanitize_pattern "$1")"
-    [ -e "$pattern" ] && break
     case "$pattern" in
         -)  break;; # stdin
         --) shift; break;;

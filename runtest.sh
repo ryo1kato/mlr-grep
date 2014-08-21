@@ -8,7 +8,10 @@ t="test-result"
 mkdir -p "$t"
 
 strip_ctrl () {
-    sed -e $'s/\033[^m]*m//g' -e $'s/\017//g'
+    # This doesn't work with BSD sed with --color option for awk
+    # BSD sed appends '\n' if it's missing from input.
+    #sed -E -e $'s/\033[^m]*m//g' -e $'s/\017//g' -e '$d'
+    gawk -v RS='\n' '{ gsub("\033[^m]*m",""); gsub("\017", ""); printf("%s", $0); printf("%s", RT);}'
 }
 
 
