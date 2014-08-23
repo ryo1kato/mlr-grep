@@ -1,12 +1,22 @@
 ifeq ($(MAKECMDGOALS),prof)
     OPTS = -rtsopts -prof -auto-all
-endif
+else
 ifeq ($(MAKECMDGOALS),static)
     OPTS = -static -optl-static -optl-pthread
+else
+    OPTS = -O
+endif
 endif
 
 all: hmlgrep
 prof static: all
+
+perftest: test-result/test.data
+	./perftest.sh
+
+test-result/test.data:
+	mkdir -p test-result
+	./test/gentestlog.sh
 
 hmlgrep: hmlgrep.hs Makefile
 	ghc --make $< $(OPTS)
