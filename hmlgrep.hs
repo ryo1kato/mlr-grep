@@ -29,6 +29,7 @@ import System.Console.ANSI
 import System.Directory
 import System.Exit
 import System.Posix.IO ( stdOutput )
+import System.IO.MMap
 import System.Posix.Terminal ( queryTerminal )
 import Text.Regex.PCRE
 import qualified Data.List as DL
@@ -44,9 +45,9 @@ pack = id
 ---- ByteString.Lazy ----
 import System.IO
 import Text.Regex.PCRE.ByteString.Lazy
-import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.ByteString.Char8 as BS
 type ByteStr = BS.ByteString
-type BSInt = Int64
+type BSInt = Int
 pack = BS.pack
 #endif
 
@@ -263,19 +264,29 @@ runPipe cmd outHandle inHandle = do
             BS.hPutStr outHandle result
             return ret
 
+runPipeMmap cmd outHandle fname = do
+    stream <- mmapFileByteString fname Nothing
+    case cmd stream of
+        (result, ret) -> do
+            BS.hPutStr outHandle result
+            return ret
+
 
 runWithOptions :: HmlGrepOpts -> IO ()
 runWithOptions opts = do
     (ps, fs) <- splitArg (opt_args opts)
     istty <- queryTerminal stdOutput
-    let runPipeCmd = runPipe (hmlgrep opts (useColor opts istty) ps) stdout
+    let runPipeCmd     = runPipe     (hmlgrep opts (useColor opts istty) ps) stdout
+    let runPipeCmdMmap = runPipeMmap (hmlgrep opts (useColor opts istty) ps) stdout
     let runPipeCmdPrint fname =
             hPutStr stdout (fname ++ ":") >> openRO fname >>= runPipeCmd
+    let runPipeCmdMmapPrint fname =
+            hPutStr stdout (fname ++ ":") >> runPipeCmdMmap fname
     ret <- if fs == []
            then runPipeCmd stdin
            else if opt_count opts && length fs > 1
-                then (liftM or) (return fs >>= mapM runPipeCmdPrint)
-                else (liftM or) (forM fs openRO >>= mapM runPipeCmd)
+                then (liftM or) (mapM runPipeCmdMmapPrint fs)
+                else (liftM or) (mapM runPipeCmdMmap fs)
     if ret
     then exitSuccess
     else exitFailure
