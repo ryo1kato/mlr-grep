@@ -49,10 +49,13 @@ WARN () { echo "$0: WARNING: $*" >&2; }
 # beginnings or ends of lines; we need to use literal '\n' 
 # But for compatibility to hmlgrep/pymlgrep and ease of use, 
 # convert them to '\n' here, but only if there's no '\n' in pattern
+# Note that we still have to keep '^' or '$' in case the pattern is at
+# very first or last of lines.
 sanitize_pattern () {
     local pattern="$1"
-    if [[ $pattern =~ \n ]]
+    if [[ $pattern =~ \\n ]]
     then
+        # make sure we escape all '/' because in AWK it's a mark(quote) surrounding RE
         echo "${pattern//\//\\/}"
     else
         # '$' is an  ordinary  character except at the end of the RE or(!)
@@ -68,7 +71,7 @@ sanitize_pattern () {
 # make semantics consistent with hmlgrep and pymlgrep. 
 sanitize_pattern_RS () {
     local pattern="$1"
-    if [[ $pattern =~ (^|\n|\||\()[\n\^] ]]
+    if [[ $pattern =~ (^|\\n|\||\()[\\n\^] ]]
     then
         sanitize_pattern "$pattern"
     else
