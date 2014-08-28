@@ -4,7 +4,7 @@ else
 ifeq ($(MAKECMDGOALS),static)
     OPTS = -static -optl-static -optl-pthread
 else
-    OPTS = -O
+    OPTS = -O2
 endif
 endif
 
