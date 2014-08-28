@@ -45,39 +45,61 @@ set -eu
 DIE () { echo "$0: ERROR: $*" >&2; exit 1; }
 WARN () { echo "$0: WARNING: $*" >&2; }
 
+case $BASH_VERSION in
+    4.*)
+        shopt -s compat31
+        newline='\n'
+        ;;
+    3.*)
+        newline='\\n'
+        ;;
+    [12].*)
+        WARN "This script probably doesn't work very well with bash-2.x"
+        ;;
+esac
+
+sedver=$(sed --version 2>&1)
+if [[ $sedver =~ GNU ]]
+then
+    sed () { command sed -r "$@"; }
+else
+    sed () { command sed -E "$@"; }
+fi
+
+
 # Because AWK's RS is not line-oriented, we can't use ^ or $ to match
-# beginnings or ends of lines; we need to use literal '\n' 
-# But for compatibility to hmlgrep/pymlgrep and ease of use, 
+# beginnings or ends of lines; we need to use literal '\n'
+# But for compatibility to hmlgrep/pymlgrep and ease of use,
 # convert them to '\n' here, but only if there's no '\n' in pattern
 # Note that we still have to keep '^' or '$' in case the pattern is at
 # very first or last of lines.
 sanitize_pattern () {
     local pattern="$1"
-    if [[ $pattern =~ \\n ]]
+    if [[ $pattern =~ "$newline" ]]
     then
         # make sure we escape all '/' because in AWK it's a mark(quote) surrounding RE
         echo "${pattern//\//\\/}"
     else
         # '$' is an  ordinary  character except at the end of the RE or(!)
         # the end of a parenthesized subexpression... [from regex(7) manpage.]
-        echo "$pattern" | sed -E \
-            -e 's@/@\\/@g' \
-            -e 's@(^|\||\()\^@\1(\\n|^)@g' \
-            -e 's@([^\\]|\\\\)\$([|$]|$)@\1(\\n|$)\2@g'
+        echo "$pattern" |
+            sed -e 's@/@\\/@g' \
+                -e 's@(^|\||\()\^@\1(\\n|^)@g' \
+                -e 's@([^\\]|\\\\)\$([|$]|$)@\1(\\n|$)\2@g'
     fi
 }
 
 # RS (or RT/oldRT) must have a '\n' at its beginning to
-# make semantics consistent with hmlgrep and pymlgrep. 
+# make it's semantics consistent with hmlgrep and pymlgrep.
 sanitize_pattern_RS () {
     local pattern="$1"
-    if [[ $pattern =~ (^|\\n|\||\()[\\n\^] ]]
+    if [[ $pattern =~ "(^|\||\()[$newline\^]" ]]
     then
         sanitize_pattern "$pattern"
     else
-        sanitize_pattern "$pattern" | sed -E \
-            -e 's@^@\\n[^\\n]*(@g' \
-            -e 's@$@)@g'
+        sanitize_pattern "$pattern" |
+            sed -e 's@^@\\n(\n|[:print:])*(@g' \
+                -e 's@$@)@g'
     fi
 }
 
