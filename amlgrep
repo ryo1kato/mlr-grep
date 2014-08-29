@@ -47,10 +47,15 @@ WARN () { echo "$0: WARNING: $*" >&2; }
 
 newline='\\n'
 test_rs='\n\n'
+regex_error="INTERNAL ERROR: bash [[ =~ ]] doesn't work as expected"
 [[ $test_rs =~ $newline ]] &&
     [ "${BASH_REMATCH[0]}" = '\n' ] ||
-    DIE "INTERNAL ERROR: bash [[ =~ ]] doesn't work as expected"
-
+        DIE $regex_error
+pat='|^'; [[ $pat =~ (^|'|')('\n'|'^') ]] &&
+    [ ${BASH_REMATCH[0]} = '|^' ] &&
+    [ ${BASH_REMATCH[1]} = '|' ] &&
+    [ ${BASH_REMATCH[2]} = '^' ] ||
+        DIE $regex_error
 
 sedver=$(sed --version 2>&1 || true)
 if [[ $sedver =~ GNU ]]
@@ -69,7 +74,7 @@ fi
 # very first or last of lines.
 sanitize_pattern () {
     local pattern="$1"
-    if [[ $pattern =~ "$newline" ]]
+    if [[ $pattern =~ '\n' ]]
     then
         # make sure we escape all '/' because in AWK it's a mark(quote) surrounding RE
         echo "${pattern//\//\\/}"
@@ -87,7 +92,7 @@ sanitize_pattern () {
 # make it's semantics consistent with hmlgrep and pymlgrep.
 sanitize_pattern_RS () {
     local pattern="$1"
-    if [[ $pattern =~ (^|\||\()($newline|\^) ]]
+    if [[ $pattern =~ (^|'|'|'(')('\n'|'^') ]]
     then
         sanitize_pattern "$pattern"
     else
