@@ -33,22 +33,14 @@ import System.Posix.Terminal ( queryTerminal )
 import Text.Regex.PCRE
 import qualified Data.List as DL
 
-#if defined(USE_STRING)
----- Using String is x30 slower than ByteString.Lazy ----
-import Prelude as BS
-import System.IO as BS
-type ByteStr = String
-type BSInt = Int
-pack = id
-#else
----- ByteString.Lazy ----
 import System.IO
-import Text.Regex.PCRE.ByteString.Lazy
-import qualified Data.ByteString.Lazy.Char8 as BS
+-- import Text.Regex.PCRE.ByteString.Lazy
+-- import qualified Data.ByteString.Lazy.Char8 as BS
+import Text.Regex.PCRE.ByteString
+import qualified Data.ByteString.Char8 as BS
 type ByteStr = BS.ByteString
-type BSInt = Int64
+type BSInt = Int
 pack = BS.pack
-#endif
 
 
 helpdoc = concat $ DL.intersperse " "
@@ -97,6 +89,48 @@ data HmlGrepOpts = HmlGrepOpts {
 type LogEntry = (Maybe ByteStr, [ByteStr])
 type Log      = [LogEntry]
 type Pattern  = Regex
+
+----------------------------------------------------------------------------
+--
+-- plain text (non-regex) search
+--
+
+regexChars = "^$(|)[]{}.*"
+regexCharsLast = ")]}.*"
+
+toPlainString' :: String -> String -> Maybe String
+toPlainString' s []         = Just s
+toPlainString' s ('$':[])   = Just ('\n':s)
+toPlainString' s (r:[])     = if r `elem` regexCharsLast
+                             then Nothing
+                             else Just (r:s)
+toPlainString' s (r1:r2:re) = if r1 `elem` regexChars
+                              then Nothing
+                              else if r1 == '\\' && r2 `elem` ('\\':regexChars)
+                                   then toPlainString' (r2:s) re
+                                   else toPlainString' (r1:s) (r2:re)
+
+-- Return Just String where string is un-escaped plain text string
+-- '^' and '$' at very beginning / end will be converted to '\n'
+-- e.g. /^\(/ -> '^('
+toPlainString :: String -> Maybe String
+toPlainString ('^':re) = liftM reverse $ toPlainString' "\n" re
+toPlainString re       = liftM reverse $ toPlainString' [] re
+
+
+findRec :: ByteStr -> ByteStr -> ByteStr -> ByteStr
+findRec rs pat empty = BS.empty
+findRec rs pat bstr  =
+    if BS.null t
+    then BS.empty
+    else if BS.null rec_t
+         then search_remaining
+         else BS.append h search_remaining
+    where (h, t) = BS.breakSubstring rs bstr
+          (rec_h, rec_t) = BS.breakSubstring pat h
+          search_remaining = findRec rs pat (BS.drop (BS.length rs) t)
+
+
 
 
 ----------------------------------------------------------------------------
