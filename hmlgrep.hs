@@ -52,17 +52,16 @@ pack = BS.pack
 
 
 helpdoc = concat $ DL.intersperse " "
-    [
-      "grep(1) like tool, but \"record-oriented\", instead of line-oriented,",
-      "to search and print multi-line log entries separated by empty lines,",
-      "'----' or timestamps, etc.",
-      "If an argument in argument list is a name of",
-      "existing file or '-', that argument and",
-      "everything after that will be treated as filenames to read from.",
-      "Otherwise arguments are considered to be patterns. ('-' means stdin)",
-      "(could be confusing if you specify nonexistent filename!)",
-      "If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before",
-      "reading from it."
+    [ "grep(1) like tool, but \"record-oriented\", instead of line-oriented."
+    , "Useful to search/print multi-line log entries separated by e.g., empty lines,"
+    , "'----' or timestamps, etc."
+    , "If an argument in argument list is a name of"
+    , "existing file or '-' (means stdin), such argument and"
+    , "all arguments after that will be treated as filenames to read from."
+    , "Otherwise arguments are considered to be regex to search."
+    , "(could be confusing if you specify nonexistent filename!)"
+--   ,"If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before"
+--   ,"reading from it."
     ]
 
 default_rs   = "^$|^(=====*|-----*)$"
