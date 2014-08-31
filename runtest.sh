@@ -83,6 +83,13 @@ runtest foo1rs2   --rs='----' foo test/test1.txt
 runtest foo1rs3   --rs='----$' foo test/test1.txt
 runtest ba1rs2    --rs '2014|Mon|Jan' ba test/date.txt
 
+runtest rs1foo       --rs='^$'     'foo'     test/test1.txt
+runtest rs1foobar    --rs='^$'     'foo bar' test/test1.txt
+runtest rs2foo       --rs='^----$' 'foo'     test/test1.txt
+runtest rs2foobar    --rs='^----$' 'foo bar' test/test1.txt
+runtest rs3foo       --rs='^----$' 'foo'     test/test1.txt
+runtest rs3foobar    --rs='^----$' 'foo bar' test/test1.txt
+
 runtest multifile        foo test/test[23].txt
 runtest multifile_count1 -c foo test/test[12].txt
 runtest multifile_count2 -c -i foo test/test[123].txt

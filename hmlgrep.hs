@@ -36,6 +36,7 @@ import qualified Data.List as DL
 import System.IO
 import Text.Regex.PCRE.ByteString
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Unsafe as BSUS
 type ByteStr = BS.ByteString
 type BSInt = Int
 pack = BS.pack
@@ -116,44 +117,33 @@ toPlainString ('^':re) = liftM reverse $ toPlainString' "\n" re
 toPlainString re       = liftM reverse $ toPlainString' [] re
 
 
-fgrep' :: ByteStr -> ByteStr -> ByteStr -> ByteStr
-fgrep' rs pat bstr  =
-    if BS.null bstr
+----------------------------------------------------------------------------
+
+fgrep' rs pat bstr =
+    if BS.null bstr || BS.null t
     then BS.empty
-    else if hasPattern pat h
-         then if BS.null t
-              then BS.concat [(BS.tail rs), h]
-              else BS.concat [(BS.tail rs), h, (pack "\n"), search_remaining]
-         else search_remaining
-    where (h, t)           = BS.breakSubstring rs bstr
-          remaining        = BS.drop (BS.length rs) t
-          search_remaining = fgrep' rs pat remaining
+    else if BS.null remaining
+         then BS.concat [rec1, rec2, newline]
+         else BS.concat [rec1, rec2, rs, remaining]
+    where (h, t)      = BS.breakSubstring pat bstr
+          rec1        = afterLastOccurrenceOf rs h
+          (rec2, rem) = BS.breakSubstring rs t
+          remaining   = fgrep' rs pat rem
+          newline     = if BS.null rem || BS.head rs /= '\n'
+                        then BS.empty
+                        else (pack "\n")
 
--- Take care of the beginning of a file (first record)
--- that possibly without a record header.
--- Note that there's no leading '\n' in the very first record header.
-fgrep rs pat bstr =
-    if (not $ beginWith (tail rs') bstr) && hasPattern (pack pat) h
-    then BS.concat [h, (pack "\n"), search_remaining]
-    else search_remaining
-    where (h, t) = BS.breakSubstring (pack rs') bstr
-          remaining = BS.drop (length $ tail rs') t
-          search_remaining = fgrep' (pack rs') (pack pat) remaining
-          rs' = if head rs == '\n'
-                then rs
-                else ('\n':rs)
+fgrep rs pat bstr = fgrep' (pack rs) (pack pat) bstr
 
 
-hasPattern :: ByteStr -> ByteStr -> Bool
-hasPattern pat bstr =
-    if BS.null t then False else True
-    where (h, t) = BS.breakSubstring pat bstr
+afterLastOccurrenceOf :: ByteStr -> ByteStr -> ByteStr
+afterLastOccurrenceOf pat bstr = revSearch 0 bstr
+  where
+  revSearch n s
+        | BS.null s             = bstr -- not found
+        | pat `BS.isSuffixOf` s = BS.drop (BS.length bstr - n) bstr
+        | otherwise             = revSearch (n+1) (BSUS.unsafeInit s)
 
-beginWith :: String -> ByteStr -> Bool
-beginWith pat str =
-    if length pat > BS.length str
-    then False
-    else ((pack pat) == BS.take (length pat) str)
 
 
 ----------------------------------------------------------------------------
