@@ -2,8 +2,6 @@
 -- hmlgrep - Haskell Multi-Line Grep
 --
 
-{-# LANGUAGE CPP #-}
-
 {-
 TODOs:
     * FIX: '-' and '--' handling in optparse-applicative
@@ -79,7 +77,7 @@ data HmlGrepOpts = HmlGrepOpts {
                    , opt_timestamp :: Bool
                    , opt_count  :: Bool
                    , opt_invert :: Bool
-                   , ignoreCase :: Bool
+                   , opt_ignorecase :: Bool
                    , opt_highlight :: Bool
                    , opt_mono :: Bool
                    , opt_args :: [String]
@@ -118,19 +116,44 @@ toPlainString ('^':re) = liftM reverse $ toPlainString' "\n" re
 toPlainString re       = liftM reverse $ toPlainString' [] re
 
 
-findRec :: ByteStr -> ByteStr -> ByteStr -> ByteStr
-findRec rs pat empty = BS.empty
-findRec rs pat bstr  =
-    if BS.null t
+fgrep' :: ByteStr -> ByteStr -> ByteStr -> ByteStr
+fgrep' rs pat bstr  =
+    if BS.null bstr
     then BS.empty
-    else if BS.null rec_t
-         then search_remaining
-         else BS.append h search_remaining
-    where (h, t) = BS.breakSubstring rs bstr
-          (rec_h, rec_t) = BS.breakSubstring pat h
-          search_remaining = findRec rs pat (BS.drop (BS.length rs) t)
+    else if hasPattern pat h
+         then if BS.null t
+              then BS.concat [(BS.tail rs), h]
+              else BS.concat [(BS.tail rs), h, (pack "\n"), search_remaining]
+         else search_remaining
+    where (h, t)           = BS.breakSubstring rs bstr
+          remaining        = BS.drop (BS.length rs) t
+          search_remaining = fgrep' rs pat remaining
+
+-- Take care of the beginning of a file (first record)
+-- that possibly without a record header.
+-- Note that there's no leading '\n' in the very first record header.
+fgrep rs pat bstr =
+    if (not $ beginWith (tail rs') bstr) && hasPattern (pack pat) h
+    then BS.concat [h, (pack "\n"), search_remaining]
+    else search_remaining
+    where (h, t) = BS.breakSubstring (pack rs') bstr
+          remaining = BS.drop (length $ tail rs') t
+          search_remaining = fgrep' (pack rs') (pack pat) remaining
+          rs' = if head rs == '\n'
+                then rs
+                else ('\n':rs)
 
 
+hasPattern :: ByteStr -> ByteStr -> Bool
+hasPattern pat bstr =
+    if BS.null t then False else True
+    where (h, t) = BS.breakSubstring pat bstr
+
+beginWith :: String -> ByteStr -> Bool
+beginWith pat str =
+    if length pat > BS.length str
+    then False
+    else ((pack pat) == BS.take (length pat) str)
 
 
 ----------------------------------------------------------------------------
@@ -235,7 +258,7 @@ matchRecordHighlight p (maybehdr,ls)
 --
 
 toRE opts str = makeRegexOpts (ic) execBlank str
-    where ic = if (ignoreCase opts) then compCaseless else compBlank
+    where ic = if (opt_ignorecase opts) then compCaseless else compBlank
 
 -- all RE strings combined with '|'
 -- used for OR search and highlights
@@ -265,9 +288,15 @@ hmlgrep' opts hl patterns log
 
 hmlgrep :: HmlGrepOpts -> Bool -> [String] -> ByteStr -> (ByteStr, Bool)
 hmlgrep opts hl patterns indata =
-    if do_command == []
-    then (toString do_command, False)
-    else (toString do_command, True)
+    if isFgrep
+    then
+        if BS.null do_fgrep
+        then (BS.empty, False)
+        else (do_fgrep, True)
+    else
+        if do_command == []
+        then (toString do_command, False)
+        else (toString do_command, True)
     where recsep = if opt_timestamp opts
                    then timestamp_rs
                    else fromMaybe default_rs (opt_rs opts)
@@ -276,6 +305,14 @@ hmlgrep opts hl patterns indata =
                      then (\x -> pack (((show.length) x) ++ "\n"))
                      else BS.unlines.log2lines
           do_command = hmlgrep' opts hl patterns logs
+          ---- fgrep ----
+          strRS    = toPlainString recsep
+          strPat   = toPlainString (head patterns)
+          isFgrep  = isJust strRS && isJust strPat &&
+                     (length patterns) == 1 &&
+                     not (opt_ignorecase opts || opt_count opts)
+                     -- FIXME: use fgrep for --count too.
+          do_fgrep = fgrep (fromJust strRS) (fromJust strPat) indata
 
 
 ----------------------------------------------------------------------------
