@@ -70,6 +70,10 @@ runtest foo2      foo test/test2.txt
 runtest FOO2      FOO test/test2.txt
 runtest notfound  zzzzzzzz test/test1.txt
 
+runtest foo_re1   '^foo' test/test[12].txt
+runtest foo_re2   'foo$' test/test[12].txt
+runtest foo_re3   '^foo$' test/test[12].txt
+
 runtest date      -t foo test/date.txt
 runtest foo1_i    -i foo test/test1.txt
 runtest foo2_i    -i foo test/test2.txt
