@@ -28,7 +28,7 @@ import Options.Applicative
 import System.Console.ANSI
 import System.Directory
 import System.Exit
-import System.Posix.IO ( stdOutput )
+import System.Posix.IO ( stdInput, stdOutput )
 import System.Posix.Terminal ( queryTerminal )
 import Text.Regex.PCRE
 import qualified Data.List as DL
@@ -262,16 +262,22 @@ runPipe cmd outHandle inHandle = do
             BS.hPutStr outHandle result
             return ret
 
+warning str = hPutStr stderr ("WARNING: " ++ str ++ "\n")
+warnIfTerminal = do
+    stdIsTty <- queryTerminal stdInput
+    if stdIsTty then warning "Reading from terminal"
+                else return ()
 
 runWithOptions :: HmlGrepOpts -> IO ()
 runWithOptions opts = do
     (ps, fs) <- splitArg (opt_args opts)
     istty <- queryTerminal stdOutput
+    -- If input is stdin of a terminal, probably it's not the user wants.
     let runPipeCmd = runPipe (hmlgrep opts (useColor opts istty) ps) stdout
     let runPipeCmdPrint fname =
             hPutStr stdout (fname ++ ":") >> openRO fname >>= runPipeCmd
     ret <- if fs == []
-           then runPipeCmd stdin
+           then warnIfTerminal >> runPipeCmd stdin
            else if opt_count opts && length fs > 1
                 then (liftM or) (return fs >>= mapM runPipeCmdPrint)
                 else (liftM or) (forM fs openRO >>= mapM runPipeCmd)
@@ -287,7 +293,7 @@ runWithOptions opts = do
                 then not $ opt_mono opts
                 else opt_highlight opts
         openRO fname
-            | fname == "-"  = return stdin
+            | fname == "-"  = warnIfTerminal >> return stdin
             | otherwise     = openFile fname ReadMode
 
 

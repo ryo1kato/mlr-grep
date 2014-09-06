@@ -5,6 +5,7 @@
 
 import re
 import sys
+import os
 import optparse
 
 USAGE = '''%prog [OPTIONS] KEYWORD [FILES]'''
@@ -68,6 +69,9 @@ def _optparse( args ):
             help="Case insensitive match.")
     return p.parse_args( args )
 
+def warnIfTerminal():
+    if os.isatty(0):
+        sys.stderr.write("WARNING: Reading from Terminal\n")
 
 def main( args ):
     opts, args = _optparse( args )
@@ -81,6 +85,7 @@ def main( args ):
         rs = re.compile(timestamp)
     else:
         rs = re.compile(opts.rs, *ignore_case)
+
     common_args = [sys.stdout, rs]
 
     if len( args ) >= 1 :
@@ -93,13 +98,15 @@ def main( args ):
         if len(args) >= 2 :
             for fname in args[1:]:
                 if fname == '-':
+                    warnIfTerminal()
                     mlrgrep(opts.count, pattern, sys.stdin, *common_args)
                 else:
                     if opts.count and len(args) >= 3:
                         sys.stdout.write(fname + ":")
                     mlrgrep(opts.count, pattern, open(fname), *common_args)
         else:
-            mlrgrep(pattern, sys.stdin, *common_args)
+            warnIfTerminal()
+            mlrgrep(opts.count, pattern, sys.stdin, *common_args)
     except KeyboardInterrupt:
         sys.exit(0)
     except IOError as e:
