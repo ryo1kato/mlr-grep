@@ -18,7 +18,7 @@ Jan 1 23:12:34
     piyo
     piyo
     piyo
-Mon, Dec 31 11:11:11
+	Mon, Dec 31 11:11:11
     huga
     huga
     huga

@@ -1,11 +1,14 @@
-#mlr-grep - Multi-line Record grep
+Japanese presentation slide is [available here](http://www.slideshare.net/ryo1kato/mlrgrep-a-recordoriented-grep)
 
-Have you ever used `grep`'s  `-A`, `-B`, or `-C` option to search something like multi-line log entries? Then probably this command is for you.
+#mlr-grep - Multi-line Record grep, a Record-Oriented grep.
 
-mlr-grep is like `grep`, but *_record_-oriented* rather than line-oriented; when it finds finds a match in a line, it prints all lines in the _record_, or in other words, all the lines around the match surrounded by _record separator_.
+Have you ever used `grep`'s  `-A`, `-B`, or `-C` option or pcregrep, or maybe AWK, perl,oneliners, to search something like multi-line log entries?
+Then probably this command is for you.
+
+mlr-grep is like `grep`, but *_record_-oriented* rather than line-oriented; when it finds a match in a line, it prints all lines in the _record_ the match is found. In other words, all the lines around the match, surrounded by _record separator_.
 And of course, you can specify record-separator using `--rs=REGEX` option, default of which is `^$|(-----\*|=====\*)$` (blank line or, four or more dashes). This is similar to `-d` (delimiter) option of [agrep](http://www.tgries.de/agrep/agrephlp.html), but our version accept arbitrary regex as record-separator
 
-Useful for multi-line logs, config files with indents or section headers, command output like `ifconfig` or `pbsnodes`
+Useful for multi-line logs, config files with indents or section headers (like `*.ini` like format), command output like `ifconfig` or `pbsnodes`
 
 
 ## Basic syntax

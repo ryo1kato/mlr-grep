@@ -27,7 +27,7 @@ import Options.Applicative
 import System.Console.ANSI
 import System.Directory
 import System.Exit
-import System.Posix.IO ( stdOutput )
+import System.Posix.IO ( stdInput, stdOutput )
 import System.IO.MMap
 import System.Posix.Terminal ( queryTerminal )
 import Text.Regex.PCRE
@@ -62,17 +62,16 @@ debug3b triplet =
 
 
 helpdoc = concat $ DL.intersperse " "
-    [
-      "grep(1) like tool, but \"record-oriented\", instead of line-oriented,",
-      "to search and print multi-line log entries separated by empty lines,",
-      "'----' or timestamps, etc.",
-      "If an argument in argument list is a name of",
-      "existing file or '-', that argument and",
-      "everything after that will be treated as filenames to read from.",
-      "Otherwise arguments are considered to be patterns. ('-' means stdin)",
-      "(could be confusing if you specify nonexistent filename!)",
-      "If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before",
-      "reading from it."
+    [ "grep(1) like tool, but \"record-oriented\", instead of line-oriented."
+    , "Useful to search/print multi-line log entries separated by e.g., empty lines,"
+    , "'----' or timestamps, etc."
+    , "If an argument in argument list is a name of"
+    , "existing file or '-' (means stdin), such argument and"
+    , "all arguments after that will be treated as filenames to read from."
+    , "Otherwise arguments are considered to be regex to search."
+    , "(could be confusing if you specify nonexistent filename!)"
+--   ,"If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before"
+--   ,"reading from it."
     ]
 
 default_rs   = "^$|^(=====*|-----*)$"
@@ -453,12 +452,20 @@ runPipe cmd outHandle inHandle = do
             BS.hPutStr outHandle result
             return ret
 
+
 runPipeMmap cmd outHandle fname = do
     stream <- mmapFileByteString fname Nothing
     case cmd stream of
         (result, ret) -> do
             BS.hPutStr outHandle result
             return ret
+
+
+warning str = hPutStr stderr ("WARNING: " ++ str ++ "\n")
+warnIfTerminal = do
+    stdIsTty <- queryTerminal stdInput
+    if stdIsTty then warning "Reading from terminal"
+                else return ()
 
 
 runWithOptions :: HmlGrepOpts -> IO ()
@@ -472,7 +479,7 @@ runWithOptions opts = do
     let runPipeCmdMmapPrint fname =
             hPutStr stdout (fname ++ ":") >> runPipeCmdMmap fname
     ret <- if fs == []
-           then runPipeCmd stdin
+           then warnIfTerminal >> runPipeCmd stdin
            else if opt_count opts && length fs > 1
                 then (liftM or) (mapM runPipeCmdMmapPrint fs)
                 else (liftM or) (mapM runPipeCmdMmap fs)
@@ -488,7 +495,7 @@ runWithOptions opts = do
                 then not $ opt_mono opts
                 else opt_highlight opts
         openRO fname
-            | fname == "-"  = return stdin
+            | fname == "-"  = warnIfTerminal >> return stdin
             | otherwise     = openFile fname ReadMode
 
 

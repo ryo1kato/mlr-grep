@@ -45,38 +45,53 @@ set -eu
 DIE () { echo "$0: ERROR: $*" >&2; exit 1; }
 WARN () { echo "$0: WARNING: $*" >&2; }
 
+sedver=$(sed --version 2>&1 || true)
+if [[ $sedver =~ GNU ]]
+then
+    sed () { command sed -r "$@"; }
+else
+    sed () { command sed -E "$@"; }
+fi
+
+
 # Because AWK's RS is not line-oriented, we can't use ^ or $ to match
-# beginnings or ends of lines; we need to use literal '\n' 
-# But for compatibility to hmlgrep/pymlgrep and ease of use, 
+# beginnings or ends of lines; we need to use literal '\n'
+# But for compatibility to hmlgrep/pymlgrep and ease of use,
 # convert them to '\n' here, but only if there's no '\n' in pattern
+# Note that we still have to keep '^' or '$' in case the pattern is at
+# very first or last of lines.
 sanitize_pattern () {
     local pattern="$1"
-    if [[ $pattern =~ \n ]]
-    then
+    case $pattern in
+    *'\n'*)
         echo "${pattern//\//\\/}"
-    else
+        ;;
+    *)
         # '$' is an  ordinary  character except at the end of the RE or(!)
         # the end of a parenthesized subexpression... [from regex(7) manpage.]
-        echo "$pattern" | sed -E \
-            -e 's@/@\\/@g' \
-            -e 's@(^|\||\()\^@\1(\\n|^)@g' \
-            -e 's@([^\\]|\\\\)\$([|$]|$)@\1(\\n|$)\2@g'
-    fi
+        echo "$pattern" |
+            sed -e 's@/@\\/@g' \
+                -e 's@(^|\||\()\^@\1(\\n|^)@g' \
+                -e 's@([^\\]|\\\\)\$([|$]|$)@\1(\\n|$)\2@g'
+        ;;
+    esac
 }
 
 # RS (or RT/oldRT) must have a '\n' at its beginning to
-# make semantics consistent with hmlgrep and pymlgrep. 
+# make it's semantics consistent with hmlgrep and pymlgrep.
 sanitize_pattern_RS () {
     local pattern="$1"
-    if [[ $pattern =~ (^|\n|\||\()[\n\^] ]]
-    then
-        sanitize_pattern "$pattern"
-    else
-        sanitize_pattern "$pattern" | sed -E \
-            -e 's@^@\\n[^\\n]*(@g' \
-            -e 's@$@)@g'
-    fi
+    case $pattern in
+    '\n'*|'^'*|*'|\n'*|*'(\n'*|*'|^'*|*'(^'*)
+        sanitize_pattern "$pattern";;
+    *)
+        sanitize_pattern "$pattern" |
+            sed -e 's@^@\\n[:print:]*(@g' \
+                -e 's@$@)@g'
+        ;;
+    esac
 }
+
 
 #################################################################
 ##
@@ -257,7 +272,12 @@ fi
 ##
 
 # read from stdin ("-") if no file name is given
-[ $# -eq 0 ] && set -- "-"
+[ $# -eq 0 ] && set -- '-'
+
+if [ $# -eq 1 -a $1 = '-' -a -t 0 ]
+then
+    WARN "Reading from terminal"
+fi
 
 errors=0
 if [ "$opt_dump" = 'yes' ]
