@@ -1,25 +1,21 @@
 --
--- hmlgrep - Haskell Multi-Line Grep
+-- hmlgrep - Haskell Multi-Line-Record Grep
 --
 
-{-
-TODOs:
-    * FIX: '-' and '--' handling in optparse-applicative
-        * https://github.com/pcapriotti/optparse-applicative/pull/99
-    * Use Cabal for build?
-    * Use Boyer-Moore for non-regex patterns using stringsearch library:
-      http://hackage.haskell.org/package/stringsearch-0.3.3/docs/Data-ByteString-Search.html
+helpdoc = concat $ DL.intersperse " "
+    [ "grep(1) like tool, but \"record-oriented\", instead of line-oriented."
+    , "Useful to search/print multi-line log entries separated by e.g., empty lines,"
+    , "'----' or timestamps, etc."
+    , "If an argument in argument list is a name of"
+    , "existing file or '-' (means stdin), such argument and"
+    , "all arguments after that will be treated as filenames to read from."
+    , "Otherwise arguments are considered to be regex to search."
+    , "(could be confusing if you specify nonexistent filename!)"
+--   ,"If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before"
+--   ,"reading from it."
+    ]
 
-INSTALL
-    $ cabal install directory
-    $ cabal install optparse-appricative
-    $ cabal install regex-pcre
-    $ cabal install ansi-terminal
-    $ ghc --make hmlgrep.hs
--}
-
-import Debug.Trace
-
+-----------------------------------------------------------------------------
 import Control.Monad
 import Data.Int
 import Data.Maybe
@@ -44,9 +40,15 @@ pack = BS.pack
 cat = BS.concat
 
 
+-----------------------------------------------------------------------------
+--
+-- debug
+--
+
 p = pack
 u = BS.unpack
 
+import Debug.Trace
 escapeNewline [] = []
 escapeNewline (c:cs) = case c of
       '\n' -> '\\' : 'n' : escapeNewline cs
@@ -61,18 +63,6 @@ debug3b triplet =
     (a,b,c) = triplet
 
 
-helpdoc = concat $ DL.intersperse " "
-    [ "grep(1) like tool, but \"record-oriented\", instead of line-oriented."
-    , "Useful to search/print multi-line log entries separated by e.g., empty lines,"
-    , "'----' or timestamps, etc."
-    , "If an argument in argument list is a name of"
-    , "existing file or '-' (means stdin), such argument and"
-    , "all arguments after that will be treated as filenames to read from."
-    , "Otherwise arguments are considered to be regex to search."
-    , "(could be confusing if you specify nonexistent filename!)"
---   ,"If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before"
---   ,"reading from it."
-    ]
 
 default_rs   = "^$|^(=====*|-----*)$"
 
@@ -160,10 +150,9 @@ sanitizeRe rs | head rs == '^'  =  '\n' : sanitizeRe' rs
               | otherwise       =  sanitizeRe' rs
 
 ----------------------------------------------------------------------------
-{- TODOs
- - convert ^$ in regex to \n for breakNextRegex
- - \n handling
--}
+--
+-- ByteStr utility functions.
+--
 
 dropLast n bstr = BS.take (BS.length bstr - n) bstr
 takeLast n bstr = BS.drop (BS.length bstr - n) bstr
@@ -258,12 +247,7 @@ fgrep' highlight fromLastRS beforeNextRS pat bstr
 
 
 
-fgrep isHl rsStr pat bstr =
-    if isNothing rsPlain
-    then -- Regex
-        fgrep' highlight (fromLastRegex rsStr) (breakNextRegex $ sanitizeRe rsStr) (pack pat) bstr
-    else -- plain text pattern
-        fgrep' highlight (fromLast rs) (breakOn rs) (pack pat) bstr
+fgrep isHl rsStr pat bstr = BS.concat [highlight first, do_fgrep rest]
     where
         rsPlain   = toPlainString rsStr
         rs        = (pack $ fromJust rsPlain)
@@ -271,6 +255,17 @@ fgrep isHl rsStr pat bstr =
         highlight = if isHl
                     then highlightAllMatches $ reCompile pat
                     else id
+        (fromLastRS, beforeNextRS) = if isNothing rsPlain
+            then -- RS is Regex
+                ((fromLastRegex rsStr), (breakNextRegex $ sanitizeRe rsStr))
+            else -- RS is plain text pattern
+                ((fromLast rs), (breakOn rs))
+        do_fgrep = fgrep' highlight fromLastRS beforeNextRS (pack pat)
+        -- when pat is '^foo', is will be converted to '\nfoo' which can't match
+        -- an occurrence of 'foo' at very beginning of bstr
+        (first, rest) = if (head pat == '\n') && (pack $ tail pat) `BS.isPrefixOf` bstr
+                        then beforeNextRS bstr
+                        else (BS.empty, bstr)
 
 
 
@@ -320,7 +315,7 @@ tryHighlightAllMatchesLines re ls =
 
 ----------------------------------------------------------------------------
 --
--- line parsing and regex matching
+-- line parsing and regex matching for [LogEntry]
 --
 
 -- Similar to =~ but RHS is Regex
@@ -377,7 +372,6 @@ matchRecordHighlight p (maybehdr,ls)
 --
 -- main logic
 --
-
 toRE opts str = makeRegexOpts (ic) execBlank str
     where ic = if (opt_ignorecase opts) then compCaseless else compBlank
 
@@ -444,6 +438,7 @@ runPipe' cmd outHandle inHandles = do
         (result, ret) -> do
             BS.hPutStr outHandle result
             return ret
+
 
 runPipe :: (ByteStr -> (ByteStr, Bool)) -> Handle -> Handle -> IO Bool
 runPipe cmd outHandle inHandle = do
