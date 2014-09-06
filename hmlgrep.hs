@@ -111,7 +111,7 @@ type Pattern  = Regex
 --
 -- Regex Handling Helper Functions
 --
-reCompile pat = makeRegexOpts compBlank execBlank pat
+reCompile pat = makeRegexOpts compMultiline execBlank pat
 
 regexChars = "^$(|)[]{}.*"
 regexCharsLast = ")]}.*"
@@ -242,7 +242,7 @@ fgrep_line pat bstr
         head          = dropLast (BS.length left) h
 
 
-fgrep' isHl fromLastRS beforeNextRS pat bstr
+fgrep' highlight fromLastRS beforeNextRS pat bstr
     | BS.null bstr  = BS.empty
     | BS.null l     = BS.empty
     | otherwise     = cat [match_rec, newline, fgrep_rest]
@@ -250,27 +250,27 @@ fgrep' isHl fromLastRS beforeNextRS pat bstr
         (h, l, t)    = fgrep_line pat bstr
         rec1         = chompl $ fromLastRS $ cat [h, l]
         (rec2, rest) = beforeNextRS t
-        match_rec    = cat [rec1, rec2]
-        fgrep_rest   = fgrep' isHl fromLastRS beforeNextRS pat rest
+        match_rec    = highlight $ cat [rec1, rec2]
+        fgrep_rest   = fgrep' highlight fromLastRS beforeNextRS pat rest
         newline | BS.null rest         = BS.empty
                 | BS.head rest == '\n' = (pack "\n") --the one removed by chompl
                 | otherwise            = BS.empty
 
 
-        b = (pack $ ">"++hlCode)
-        c = (pack $ hlReset++"<")
-
 
 fgrep isHl rsStr pat bstr =
     if isNothing rsPlain
     then -- Regex
-        fgrep' isHl (fromLastRegex rsStr) (breakNextRegex $ sanitizeRe rsStr) (pack pat) bstr
+        fgrep' highlight (fromLastRegex rsStr) (breakNextRegex $ sanitizeRe rsStr) (pack pat) bstr
     else -- plain text pattern
-        fgrep' isHl (fromLast rs) (breakOn rs) (pack pat) bstr
+        fgrep' highlight (fromLast rs) (breakOn rs) (pack pat) bstr
     where
-        rsPlain = toPlainString rsStr
-        rs      = (pack $ fromJust rsPlain)
-        rsRE    = reCompile rsStr
+        rsPlain   = toPlainString rsStr
+        rs        = (pack $ fromJust rsPlain)
+        rsRE      = reCompile rsStr
+        highlight = if isHl
+                    then highlightAllMatches $ reCompile pat
+                    else id
 
 
 
@@ -302,14 +302,16 @@ highlightRangesRSorted str (r:rs) = highlightRangesRSorted (highlightRange str r
 allMatchAsList re str = getAllMatches $
     (match re str :: AllMatches [] (MatchOffset, MatchLength))
 
+highlightAllMatches re str = highlightRangesRSorted str (reverse m)
+    where m = allMatchAsList re str
 
-highlightAllMatches re str =
+tryHighlightAllMatches re str =
     if m == []
     then Nothing
     else Just (highlightRangesRSorted str (reverse m))
     where m = allMatchAsList re str
 
-highlightAllMatchesLines re ls =
+tryHighlightAllMatchesLines re ls =
     if concat ms == []
     then Nothing
     else Just (zipWith highlight ls ms)
@@ -366,8 +368,8 @@ matchRecordHighlight p (maybehdr,ls)
         then Nothing
         else Just (Just (fromMaybe hdr hl_hdr), fromMaybe ls hl_ls)
         where
-            hl_hdr = highlightAllMatches p hdr
-            hl_ls  = highlightAllMatchesLines p ls
+            hl_hdr = tryHighlightAllMatches p hdr
+            hl_ls  = tryHighlightAllMatchesLines p ls
             hdr    = fromJust maybehdr
 
 
@@ -425,12 +427,11 @@ hmlgrep opts hl patterns indata =
                      else BS.unlines.log2lines
           do_command = hmlgrep' opts hl patterns logs
           ---- fgrep ----
-          strRS    = toPlainString recsep
           strPat   = toPlainString (head patterns)
           isFgrep  = isJust strPat && (length patterns) == 1 &&
                      not (opt_ignorecase opts || opt_count opts || opt_invert opts)
                      -- FIXME: use fgrep for --count too.
-          do_fgrep = fgrep (opt_highlight opts) recsep (fromJust strPat) indata
+          do_fgrep = fgrep hl recsep (fromJust strPat) indata
 
 
 ----------------------------------------------------------------------------
