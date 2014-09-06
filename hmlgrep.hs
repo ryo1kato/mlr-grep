@@ -18,6 +18,7 @@ INSTALL
     $ ghc --make hmlgrep.hs
 -}
 
+import Debug.Trace
 
 import Control.Monad
 import Data.Int
@@ -40,6 +41,24 @@ import qualified Data.ByteString.Unsafe as BSUS
 type ByteStr = BS.ByteString
 type BSInt = Int
 pack = BS.pack
+cat = BS.concat
+
+
+p = pack
+u = BS.unpack
+
+escapeNewline [] = []
+escapeNewline (c:cs) = case c of
+      '\n' -> '\\' : 'n' : escapeNewline cs
+      _    -> c : escapeNewline cs
+
+traceB :: ByteStr -> ByteStr
+traceB b = BS.pack $ traceId $
+    ">>>" ++ hlCode ++ (escapeNewline (BS.unpack b)) ++ hlReset ++ "<<<"
+debug3b triplet =
+    ((u a), (u b), (u c))
+    where
+    (a,b,c) = triplet
 
 
 helpdoc = concat $ DL.intersperse " "
@@ -91,11 +110,17 @@ type Pattern  = Regex
 
 ----------------------------------------------------------------------------
 --
--- plain text (non-regex) search
+-- Regex Handling Helper Functions
 --
+reCompile pat = makeRegexOpts compBlank execBlank pat
 
 regexChars = "^$(|)[]{}.*"
 regexCharsLast = ")]}.*"
+ctrlChars = "nt" -- \n, \t
+toCtrlChars c = case c of
+    'n' -> '\n'
+    't' -> '\t'
+    _   -> c
 
 toPlainString' :: String -> String -> Maybe String
 toPlainString' s []         = Just s
@@ -103,11 +128,11 @@ toPlainString' s ('$':[])   = Just ('\n':s)
 toPlainString' s (r:[])     = if r `elem` regexCharsLast
                              then Nothing
                              else Just (r:s)
-toPlainString' s (r1:r2:re) = if r1 `elem` regexChars
-                              then Nothing
-                              else if r1 == '\\' && r2 `elem` ('\\':regexChars)
-                                   then toPlainString' (r2:s) re
-                                   else toPlainString' (r1:s) (r2:re)
+toPlainString' s (r1:r2:re)
+  | r1 `elem` regexChars   = Nothing
+  | r1 == '\\' && r2 `elem` ('\\':regexChars)  = toPlainString' (r2:s) re
+  | r1 == '\\' && r2 `elem` ctrlChars  = toPlainString' ((toCtrlChars r2):s) re
+  | otherwise   = toPlainString' (r1:s) (r2:re)
 
 -- Return Just String where string is un-escaped plain text string
 -- '^' and '$' at very beginning / end will be converted to '\n'
@@ -117,32 +142,137 @@ toPlainString ('^':re) = liftM reverse $ toPlainString' "\n" re
 toPlainString re       = liftM reverse $ toPlainString' [] re
 
 
+--
+-- convert ^ and $ to '\n' in regex string because
+-- with PCRE multiline mode /^$/ matches at very end of "foobar\n"
+-- which we don't want.
+--
+sanitizeRe' [] = []
+sanitizeRe' ('$':[])      =  "\n"
+sanitizeRe' (r:[])        =  r:[]
+sanitizeRe' ('\\':r:rs)   =  '\\' : r : sanitizeRe' rs
+sanitizeRe' ('(':'^':rs)  =  "(\n" ++ sanitizeRe' rs
+sanitizeRe' ('|':'^':rs)  =  "|\n" ++ sanitizeRe' rs
+sanitizeRe' ('$':')':rs)  =  "\n)" ++ sanitizeRe' rs
+sanitizeRe' ('$':'|':rs)  =  "\n|" ++ sanitizeRe' rs
+sanitizeRe' (r1:r2:rs)    =  r1 : sanitizeRe' (r2:rs)
+
+sanitizeRe rs | head rs == '^'  =  '\n' : sanitizeRe' rs
+              | otherwise       =  sanitizeRe' rs
+
+----------------------------------------------------------------------------
+{- TODOs
+ - convert ^$ in regex to \n for breakNextRegex
+ - \n handling
+-}
+
+dropLast n bstr = BS.take (BS.length bstr - n) bstr
+takeLast n bstr = BS.drop (BS.length bstr - n) bstr
+chomp bstr  | BS.null bstr         = bstr
+            | BS.last bstr == '\n' = BS.init bstr
+            | otherwise            = bstr
+
+chompl bstr | BS.null bstr         = bstr
+            | BS.head bstr == '\n' = BS.tail bstr
+            | otherwise            = bstr
+
+chomp2 bstr | BS.null bstr         = (BS.empty, BS.empty)
+            | BS.last bstr == '\n' = (BS.init bstr, (pack "\n"))
+            | otherwise            = (bstr, BS.empty)
+
+
+
 ----------------------------------------------------------------------------
 
-fgrep' rs pat bstr =
-    if BS.null bstr || BS.null t
-    then BS.empty
-    else if BS.null remaining
-         then BS.concat [rec1, rec2, newline]
-         else BS.concat [rec1, rec2, rs, remaining]
-    where (h, t)      = BS.breakSubstring pat bstr
-          rec1        = afterLastOccurrenceOf rs h
-          (rec2, rem) = BS.breakSubstring rs t
-          remaining   = fgrep' rs pat rem
-          newline     = if BS.null rem || BS.head rs /= '\n'
-                        then BS.empty
-                        else (pack "\n")
 
-fgrep rs pat bstr = fgrep' (pack rs) (pack pat) bstr
+breakNextRegex re bstr =
+    if pos >= 0
+    then BS.splitAt pos bstr
+    else (bstr, BS.empty)
+    where (pos, len) = bstr =~ re :: (MatchOffset,MatchLength)
 
-
-afterLastOccurrenceOf :: ByteStr -> ByteStr -> ByteStr
-afterLastOccurrenceOf pat bstr = revSearch 0 bstr
+fromLast :: ByteStr -> ByteStr -> ByteStr
+fromLast pat bstr = revSearch 0 bstr
   where
   revSearch n s
         | BS.null s             = bstr -- not found
-        | pat `BS.isSuffixOf` s = BS.drop (BS.length bstr - n) bstr
+        | pat `BS.isSuffixOf` s = BS.drop totalDrop bstr
         | otherwise             = revSearch (n+1) (BSUS.unsafeInit s)
+        where
+        totalDrop = BS.length bstr - n - BS.length pat
+
+afterLast pat bstr
+    | BS.null pat  = BS.empty
+    | BS.null bstr = bstr
+    | otherwise    = if pat `BS.isPrefixOf` fromlast
+                     then BS.drop (BS.length pat) fromlast
+                     else fromlast
+        where fromlast = fromLast pat bstr
+
+
+fromLastRegex :: String -> ByteStr -> ByteStr
+fromLastRegex re bstr = cat [revSearchRE 0 body, newline]
+    where
+    -- chomp the trailing '\n' to avoid /^$/ to match very end of
+    -- something like "foo\nbar\nbaz\n"
+    (body, newline) = chomp2 bstr
+    revSearchRE n s
+        | BS.null s   = body
+        | offset >= 0 = takeLast (consumed - offset) body
+        | otherwise   = revSearchRE consumed remaining
+        where
+        lastline    = fromLast (pack "\n") s
+        (offset, l) = (BS.tail lastline) =~ re :: (MatchOffset,MatchLength)
+        consumed    = n + BS.length lastline
+        remaining   = dropLast consumed body
+
+
+--
+-- split bstr into 3 parts: before, on, and after first line with match
+--
+fgrep_line pat bstr
+    | BS.null bstr  = (BS.empty, BS.empty, BS.empty)
+    | BS.null pat   = (BS.empty, BS.empty, bstr)
+    | BS.null t     = (bstr,     BS.empty, BS.empty)
+    | BS.null rest  = (h, t,     BS.empty)
+    | otherwise     = (head, cat [left, right, (p "\n")], BS.tail rest)
+        where
+        (h, t)        = breakOn pat bstr
+        left          = afterLast (pack "\n") h -- FIXME
+        (right, rest) = breakOn (pack "\n") t
+        head          = dropLast (BS.length left) h
+
+
+fgrep' isHl fromLastRS beforeNextRS pat bstr
+    | BS.null bstr  = BS.empty
+    | BS.null l     = BS.empty
+    | otherwise     = cat [match_rec, newline, fgrep_rest]
+    where
+        (h, l, t)    = fgrep_line pat bstr
+        rec1         = chompl $ fromLastRS $ cat [h, l]
+        (rec2, rest) = beforeNextRS t
+        match_rec    = cat [rec1, rec2]
+        fgrep_rest   = fgrep' isHl fromLastRS beforeNextRS pat rest
+        newline | BS.null rest         = BS.empty
+                | BS.head rest == '\n' = (pack "\n") --the one removed by chompl
+                | otherwise            = BS.empty
+
+
+        b = (pack $ ">"++hlCode)
+        c = (pack $ hlReset++"<")
+
+
+fgrep isHl rsStr pat bstr =
+    if isNothing rsPlain
+    then -- Regex
+        fgrep' isHl (fromLastRegex rsStr) (breakNextRegex $ sanitizeRe rsStr) (pack pat) bstr
+    else -- plain text pattern
+        fgrep' isHl (fromLast rs) (breakOn rs) (pack pat) bstr
+    where
+        rsPlain = toPlainString rsStr
+        rs      = (pack $ fromJust rsPlain)
+        rsRE    = reCompile rsStr
+
 
 
 
@@ -155,7 +285,7 @@ hlCode  = setSGRCode [SetSwapForegroundBackground True]
 hlReset = setSGRCode [Reset]
 
 highlightRange :: ByteStr -> (Int, Int) -> ByteStr
-highlightRange str mch = BS.concat [ (BS.take start str), (pack hlCode) ,
+highlightRange str mch = cat [ (BS.take start str), (pack hlCode) ,
                        (BS.take len $ BS.drop start str), (pack hlReset) ,
                        (BS.drop (start+len) str)]
     -- ByteString versions of 'take', 'drop', etc. take Int64, not Int
@@ -298,11 +428,10 @@ hmlgrep opts hl patterns indata =
           ---- fgrep ----
           strRS    = toPlainString recsep
           strPat   = toPlainString (head patterns)
-          isFgrep  = isJust strRS && isJust strPat &&
-                     (length patterns) == 1 &&
-                     not (opt_ignorecase opts || opt_count opts)
+          isFgrep  = isJust strPat && (length patterns) == 1 &&
+                     not (opt_ignorecase opts || opt_count opts || opt_invert opts)
                      -- FIXME: use fgrep for --count too.
-          do_fgrep = fgrep (fromJust strRS) (fromJust strPat) indata
+          do_fgrep = fgrep (opt_highlight opts) recsep (fromJust strPat) indata
 
 
 ----------------------------------------------------------------------------
@@ -311,7 +440,7 @@ hmlgrep opts hl patterns indata =
 --
 runPipe' cmd outHandle inHandles = do
     streams <- forM inHandles BS.hGetContents
-    case (cmd $ BS.concat streams) of
+    case (cmd $ cat streams) of
         (result, ret) -> do
             BS.hPutStr outHandle result
             return ret
