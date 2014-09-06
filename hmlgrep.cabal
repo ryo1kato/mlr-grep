@@ -19,7 +19,7 @@ cabal-version:       >=1.10
 executable hmlgrep
   main-is:             hmlgrep.hs
   build-depends:       base >=4.5 && <4.8,
-                       optparse-applicative >= 0.9.1.2,
+                       optparse-applicative >= 0.9.1.1,
                        directory >= 1.2.0.1,
                        ansi-terminal >= 0.6.1.1,
                        regex-pcre >= 0.94.4,
