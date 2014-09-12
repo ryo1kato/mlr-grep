@@ -2,20 +2,6 @@
 -- hmlgrep - Haskell Multi-Line-Record Grep
 --
 
-helpdoc = concat $ DL.intersperse " "
-    [ "grep(1) like tool, but \"record-oriented\", instead of line-oriented."
-    , "Useful to search/print multi-line log entries separated by e.g., empty lines,"
-    , "'----' or timestamps, etc."
-    , "If an argument in argument list is a name of"
-    , "existing file or '-' (means stdin), such argument and"
-    , "all arguments after that will be treated as filenames to read from."
-    , "Otherwise arguments are considered to be regex to search."
-    , "(could be confusing if you specify nonexistent filename!)"
---   ,"If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before"
---   ,"reading from it."
-    ]
-
------------------------------------------------------------------------------
 import Control.Monad
 import Data.Int
 import Data.Maybe
@@ -34,11 +20,28 @@ import System.IO
 import Text.Regex.PCRE.ByteString
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Unsafe as BSUS
+
+import Debug.Trace
+
 type ByteStr = BS.ByteString
 type BSInt = Int
 pack = BS.pack
 cat = BS.concat
 
+-----------------------------------------------------------------------------
+
+helpdoc = concat $ DL.intersperse " "
+    [ "grep(1) like tool, but \"record-oriented\", instead of line-oriented."
+    , "Useful to search/print multi-line log entries separated by e.g., empty lines,"
+    , "'----' or timestamps, etc."
+    , "If an argument in argument list is a name of"
+    , "existing file or '-' (means stdin), such argument and"
+    , "all arguments after that will be treated as filenames to read from."
+    , "Otherwise arguments are considered to be regex to search."
+    , "(could be confusing if you specify nonexistent filename!)"
+--   ,"If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before"
+--   ,"reading from it."
+    ]
 
 -----------------------------------------------------------------------------
 --
@@ -48,7 +51,6 @@ cat = BS.concat
 p = pack
 u = BS.unpack
 
-import Debug.Trace
 escapeNewline [] = []
 escapeNewline (c:cs) = case c of
       '\n' -> '\\' : 'n' : escapeNewline cs
