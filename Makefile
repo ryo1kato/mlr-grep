@@ -4,7 +4,7 @@ else
 ifeq ($(MAKECMDGOALS),static)
     OPTS = -static -optl-static -optl-pthread
 else
-    OPTS = -O2 -Wall
+	OPTS = -O2 -Wall -fno-warn-missing-signatures -fno-warn-name-shadowing
 endif
 endif
 

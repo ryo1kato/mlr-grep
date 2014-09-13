@@ -3,7 +3,6 @@
 --
 
 import Control.Monad
-import Data.Int
 import Data.Maybe
 import Options.Applicative
 import System.Console.ANSI
@@ -17,16 +16,13 @@ import Data.ByteString.Search
 import qualified Data.List as DL
 
 import System.IO
-import Text.Regex.PCRE.ByteString
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Unsafe as BSUS
-
-import Debug.Trace
 
 type ByteStr = BS.ByteString
 type BSInt = Int
 pack = BS.pack
-cat = BS.concat
+cat = BS.concat :: [BS.ByteString] -> BS.ByteString
 
 -----------------------------------------------------------------------------
 
@@ -48,6 +44,7 @@ helpdoc = concat $ DL.intersperse " "
 -- debug
 --
 
+{-
 p = pack
 u = BS.unpack
 
@@ -63,7 +60,7 @@ debug3b triplet =
     ((u a), (u b), (u c))
     where
     (a,b,c) = triplet
-
+-}
 
 
 default_rs   = "^$|^(=====*|-----*)$"
@@ -97,7 +94,6 @@ data HmlGrepOpts = HmlGrepOpts {
 -- type LogEntry = (Maybe String, [String])
 type LogEntry = (Maybe ByteStr, [ByteStr])
 type Log      = [LogEntry]
-type Pattern  = Regex
 
 ----------------------------------------------------------------------------
 --
@@ -158,9 +154,11 @@ sanitizeRe rs | head rs == '^'  =  '\n' : sanitizeRe' rs
 
 dropLast n bstr = BS.take (BS.length bstr - n) bstr
 takeLast n bstr = BS.drop (BS.length bstr - n) bstr
+{-
 chomp bstr  | BS.null bstr         = bstr
             | BS.last bstr == '\n' = BS.init bstr
             | otherwise            = bstr
+-}
 
 chompl bstr | BS.null bstr         = bstr
             | BS.head bstr == '\n' = BS.tail bstr
@@ -179,7 +177,7 @@ breakNextRegex re bstr =
     if pos >= 0
     then BS.splitAt pos bstr
     else (bstr, BS.empty)
-    where (pos, len) = bstr =~ re :: (MatchOffset,MatchLength)
+    where (pos, _) = bstr =~ re :: (MatchOffset,MatchLength)
 
 fromLast :: ByteStr -> ByteStr -> ByteStr
 fromLast pat bstr = revSearch 0 bstr
@@ -212,7 +210,7 @@ fromLastRegex re bstr = cat [revSearchRE 0 body, newline]
         | otherwise   = revSearchRE consumed remaining
         where
         lastline    = fromLast (pack "\n") s
-        (offset, l) = (BS.tail lastline) =~ re :: (MatchOffset,MatchLength)
+        (offset, _) = (BS.tail lastline) =~ re :: (MatchOffset,MatchLength)
         consumed    = n + BS.length lastline
         remaining   = dropLast consumed body
 
@@ -225,7 +223,7 @@ fgrep_line pat bstr
     | BS.null pat   = (BS.empty, BS.empty, bstr)
     | BS.null t     = (bstr,     BS.empty, BS.empty)
     | BS.null rest  = (h, t,     BS.empty)
-    | otherwise     = (head, cat [left, right, (p "\n")], BS.tail rest)
+    | otherwise     = (head, cat [left, right, (pack "\n")], BS.tail rest)
         where
         (h, t)        = breakOn pat bstr
         left          = afterLast (pack "\n") h -- FIXME
@@ -253,7 +251,6 @@ fgrep isHl rsStr pat bstr = BS.concat [highlight first, do_fgrep rest]
     where
         rsPlain   = toPlainString rsStr
         rs        = (pack $ fromJust rsPlain)
-        rsRE      = reCompile rsStr
         highlight = if isHl
                     then highlightAllMatches $ reCompile pat
                     else id
@@ -331,7 +328,7 @@ toLogEntry sep (l:ls) = if (l ==~ sep)
                 else (Nothing, (l:ls)) -- First record without header(separator)
 
 
-lines2log sep [] = []
+lines2log _ [] = []
 lines2log sep (l:ls) = head : tail
     where head = toLogEntry sep $ l:(takeWhile notsep ls)
           tail = lines2log sep (dropWhile notsep ls)
@@ -384,7 +381,7 @@ composeRE opts str = toRE opts $ DL.intercalate "|" str
 hmlgrep_hl re log = catMaybes $ map (matchRecordHighlight re) log
 
 hmlgrep' :: HmlGrepOpts -> Bool -> [String] -> Log -> Log
-hmlgrep' _ _ [] log = []
+hmlgrep' _ _ [] _ = []
 hmlgrep' _ _ _ [] = []
 hmlgrep' opts hl patterns log
     | o_invert        = filter (not.matcher) log -- never highlights
