@@ -1,0 +1,8 @@
+Todo list for stream (a.k.a. do-not-line-unline branch):
+
+[x] ByteString.Lazy
+[ ] fgrep --count support (?)
+[ ] do-not-line-unline + search-pattern-first for regex keyword
+[ ] do-not-line-unline for --invert-match
+[ ] backward search limit to a Chunk or two, to free memory
+[ ] minimal ByteStr.hs

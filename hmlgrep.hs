@@ -1,6 +1,7 @@
 --
 -- hmlgrep - Haskell Multi-Line-Record Grep
 --
+{-# LANGUAGE OverloadedStrings #-}
 
 import Control.Monad
 import Data.Maybe
@@ -9,20 +10,29 @@ import System.Console.ANSI
 import System.Directory
 import System.Exit
 import System.Posix.IO ( stdInput, stdOutput )
-import System.IO.MMap
+-- import System.IO.MMap
+import System.IO.Posix.MMap.Lazy
 import System.Posix.Terminal ( queryTerminal )
 import Text.Regex.PCRE
-import Data.ByteString.Search
+import Data.ByteString.Lazy.Search
 import qualified Data.List as DL
 
 import System.IO
-import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Unsafe as BSUS
 
+
+-- import qualified Data.ByteString.Char8 as BS
+{-
+    Using bytestr.hs, instead of importing the above,
+    which is dumb copy of it but with isSuffixOf support
+    because isSuffixOf is somehow not exported there.
+-}
+import qualified ByteStr as BS
+import Data.Int
 type ByteStr = BS.ByteString
-type BSInt = Int
+type BSInt = Int64
 pack = BS.pack
 cat = BS.concat :: [BS.ByteString] -> BS.ByteString
+
 
 -----------------------------------------------------------------------------
 
@@ -45,9 +55,6 @@ helpdoc = concat $ DL.intersperse " "
 --
 
 {-
-p = pack
-u = BS.unpack
-
 escapeNewline [] = []
 escapeNewline (c:cs) = case c of
       '\n' -> '\\' : 'n' : escapeNewline cs
@@ -165,7 +172,7 @@ chompl bstr | BS.null bstr         = bstr
             | otherwise            = bstr
 
 chomp2 bstr | BS.null bstr         = (BS.empty, BS.empty)
-            | BS.last bstr == '\n' = (BS.init bstr, (pack "\n"))
+            | BS.last bstr == '\n' = (BS.init bstr, "\n")
             | otherwise            = (bstr, BS.empty)
 
 
@@ -175,7 +182,7 @@ chomp2 bstr | BS.null bstr         = (BS.empty, BS.empty)
 
 breakNextRegex re bstr =
     if pos >= 0
-    then BS.splitAt pos bstr
+    then BS.splitAt (fromIntegral pos) bstr
     else (bstr, BS.empty)
     where (pos, _) = bstr =~ re :: (MatchOffset,MatchLength)
 
@@ -185,7 +192,8 @@ fromLast pat bstr = revSearch 0 bstr
   revSearch n s
         | BS.null s             = bstr -- not found
         | pat `BS.isSuffixOf` s = BS.drop totalDrop bstr
-        | otherwise             = revSearch (n+1) (BSUS.unsafeInit s)
+        -- | otherwise             = revSearch (n+1) (BSUS.unsafeInit s)
+        | otherwise             = revSearch (n+1) (BS.init s)
         where
         totalDrop = BS.length bstr - n - BS.length pat
 
@@ -209,8 +217,9 @@ fromLastRegex re bstr = cat [revSearchRE 0 body, newline]
         | offset >= 0 = takeLast (consumed - offset) body
         | otherwise   = revSearchRE consumed remaining
         where
-        lastline    = fromLast (pack "\n") s
-        (offset, _) = (BS.tail lastline) =~ re :: (MatchOffset,MatchLength)
+        lastline    = fromLast "\n" s
+        (offset_, _) = (BS.tail lastline) =~ re :: (MatchOffset,MatchLength)
+        offset      = fromIntegral offset_
         consumed    = n + BS.length lastline
         remaining   = dropLast consumed body
 
@@ -218,16 +227,17 @@ fromLastRegex re bstr = cat [revSearchRE 0 body, newline]
 --
 -- split bstr into 3 parts: before, on, and after first line with match
 --
+fgrep_line :: ByteStr -> ByteStr -> (ByteStr, ByteStr, ByteStr)
 fgrep_line pat bstr
     | BS.null bstr  = (BS.empty, BS.empty, BS.empty)
     | BS.null pat   = (BS.empty, BS.empty, bstr)
     | BS.null t     = (bstr,     BS.empty, BS.empty)
     | BS.null rest  = (h, t,     BS.empty)
-    | otherwise     = (head, cat [left, right, (pack "\n")], BS.tail rest)
+    | otherwise     = (head, cat [left, right, "\n"], BS.tail rest)
         where
-        (h, t)        = breakOn pat bstr
-        left          = afterLast (pack "\n") h -- FIXME
-        (right, rest) = breakOn (pack "\n") t
+        (h, t)        = breakOn (BS.toStrict pat) bstr
+        left          = afterLast "\n" h -- FIXME
+        (right, rest) = breakOn "\n" t
         head          = dropLast (BS.length left) h
 
 
@@ -242,11 +252,11 @@ fgrep' highlight fromLastRS beforeNextRS pat bstr
         match_rec    = highlight $ cat [rec1, rec2]
         fgrep_rest   = fgrep' highlight fromLastRS beforeNextRS pat rest
         newline | BS.null rest         = BS.empty
-                | BS.head rest == '\n' = (pack "\n") --the one removed by chompl
+                | BS.head rest == '\n' = "\n" --the one removed by chompl
                 | otherwise            = BS.empty
 
 
-
+fgrep :: Bool -> String -> String -> ByteStr -> ByteStr
 fgrep isHl rsStr pat bstr = BS.concat [highlight first, do_fgrep rest]
     where
         rsPlain   = toPlainString rsStr
@@ -258,7 +268,7 @@ fgrep isHl rsStr pat bstr = BS.concat [highlight first, do_fgrep rest]
             then -- RS is Regex
                 ((fromLastRegex rsStr), (breakNextRegex $ sanitizeRe rsStr))
             else -- RS is plain text pattern
-                ((fromLast rs), (breakOn rs))
+                ((fromLast rs), (breakOn $ BS.toStrict rs))
         do_fgrep = fgrep' highlight fromLastRS beforeNextRS (pack pat)
         -- when pat is '^foo', is will be converted to '\nfoo' which can't match
         -- an occurrence of 'foo' at very beginning of bstr
@@ -431,14 +441,16 @@ hmlgrep opts hl patterns indata =
 --
 -- Run as a Unix command-line filter (pipe)
 --
-runPipe' cmd outHandle inHandles = do
+
+-- concat input from all files and feed into a command
+_runPipe' cmd outHandle inHandles = do
     streams <- forM inHandles BS.hGetContents
     case (cmd $ cat streams) of
         (result, ret) -> do
             BS.hPutStr outHandle result
             return ret
 
-
+-- open separate streams per file and feed into command separately
 runPipe :: (ByteStr -> (ByteStr, Bool)) -> Handle -> Handle -> IO Bool
 runPipe cmd outHandle inHandle = do
     stream <- BS.hGetContents inHandle
@@ -447,9 +459,9 @@ runPipe cmd outHandle inHandle = do
             BS.hPutStr outHandle result
             return ret
 
-
 runPipeMmap cmd outHandle fname = do
-    stream <- mmapFileByteString fname Nothing
+    -- stream <- mmapFileByteString fname Nothing
+    stream <- unsafeMMapFile fname
     case cmd stream of
         (result, ret) -> do
             BS.hPutStr outHandle result
@@ -469,7 +481,7 @@ runWithOptions opts = do
     istty <- queryTerminal stdOutput
     let runPipeCmd     = runPipe     (hmlgrep opts (useColor opts istty) ps) stdout
     let runPipeCmdMmap = runPipeMmap (hmlgrep opts (useColor opts istty) ps) stdout
-    let runPipeCmdPrint fname =
+    let _runPipeCmdPrint fname =
             hPutStr stdout (fname ++ ":") >> openRO fname >>= runPipeCmd
     let runPipeCmdMmapPrint fname =
             hPutStr stdout (fname ++ ":") >> runPipeCmdMmap fname
