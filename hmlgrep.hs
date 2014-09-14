@@ -3,6 +3,8 @@
 --
 {-# LANGUAGE OverloadedStrings #-}
 
+-- import Debug.Trace
+
 import Control.Monad
 import qualified Data.ByteString.Lazy.Search as StrSearch
 import Data.Maybe
@@ -18,7 +20,6 @@ import System.Posix.Terminal ( queryTerminal )
 import Text.Regex.PCRE
 import qualified Data.List as DL
 
-import Debug.Trace
 
 -- import qualified Data.ByteString.Lazy.Char8 as BS
 {-
@@ -108,6 +109,7 @@ toPlainString' s ('$':[])   = Just ('\n':s)
 toPlainString' s (r:[])     = if r `elem` regexCharsLast
                              then Nothing
                              else Just (r:s)
+
 toPlainString' s (r1:r2:re)
   | r1 `elem` regexChars   = Nothing
   | r1 == '\\' && r2 `elem` ('\\':regexChars)  = toPlainString' (r2:s) re
@@ -120,7 +122,6 @@ toPlainString' s (r1:r2:re)
 toPlainString :: String -> Maybe String
 toPlainString ('^':re) = liftM reverse $ toPlainString' "\n" re
 toPlainString re       = liftM reverse $ toPlainString' [] re
-
 
 --
 -- convert ^ and $ to '\n' in regex string because
@@ -164,6 +165,15 @@ chomp2 bstr | BS.null bstr         = (BS.empty, BS.empty)
 
 
 ----------------------------------------------------------------------------
+
+-- If pat is '^foo', is converted to '\nfoo' which can't match
+-- an occurrence of 'foo' at very beginning of bstr
+match_head pat bstr =
+    (head pat == '\n') && (pack $ tail pat) `BS.isPrefixOf` bstr
+
+-- Like '^foo', 'foo$' is converted to 'foo\n'.
+match_tail bpat bstr =
+    (BS.last bpat == '\n') && (BS.init bpat) `BS.isSuffixOf` bstr
 
 
 breakNextRegex re bstr =
@@ -209,6 +219,17 @@ fromLastRegex re bstr = cat [revSearchRE 0 body, newline]
         remaining   = dropLast consumed body
 
 
+getRsMatchFuncs rsStr =
+    if isNothing rsPlain
+    then -- RS is Regex
+        (fromLastRegex rsStr, breakNextRegex $ sanitizeRe rsStr)
+    else -- RS is plain text pattern
+        (fromLast rs, breakBefore rs)
+    where
+        rsPlain   = toPlainString rsStr
+        rs        = (pack $ fromJust rsPlain)
+
+
 --
 -- split bstr into 3 parts: before, on, and after first line with match
 --
@@ -228,7 +249,9 @@ fgrep_line pat bstr
 
 fgrep' highlight fromLastRS beforeNextRS pat bstr
     | BS.null bstr  = BS.empty
-    | BS.null l     = BS.empty
+    | BS.null l     = if match_tail pat h
+                      then fromLastRS h
+                      else BS.empty
     | otherwise     = cat [match_rec, newline, fgrep_rest]
     where
         (h, l, t)    = fgrep_line pat bstr
@@ -239,26 +262,6 @@ fgrep' highlight fromLastRS beforeNextRS pat bstr
         newline | BS.null rest         = BS.empty
                 | BS.head rest == '\n' = "\n" --the one removed by chompl
                 | otherwise            = BS.empty
-
-
--- If pat is '^foo', is converted to '\nfoo' which can't match
--- an occurrence of 'foo' at very beginning of bstr
-match_head pat bstr =
-    (head pat == '\n') && (pack $ tail pat) `BS.isPrefixOf` bstr
-
--- Like '^foo', 'foo$' is converted to 'foo\n'.
-match_tail bpat bstr =
-    (BS.last bpat == '\n') && (BS.init bpat) `BS.isSuffixOf` bstr
-
-getRsMatchFuncs rsStr =
-    if isNothing rsPlain
-    then -- RS is Regex
-        (fromLastRegex rsStr, breakNextRegex $ sanitizeRe rsStr)
-    else -- RS is plain text pattern
-        (fromLast rs, breakBefore rs)
-    where
-        rsPlain   = toPlainString rsStr
-        rs        = (pack $ fromJust rsPlain)
 
 
 fgrep :: Bool -> String -> String -> ByteStr -> ByteStr
