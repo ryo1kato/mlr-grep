@@ -4,11 +4,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- import Debug.Trace
-
 import Control.Monad
 import qualified Data.ByteString.Lazy.Search as StrSearch
 import Data.Maybe
-import Options.Applicative
+import Options.Applicative hiding (str)
+import qualified Options.Applicative.Builder as AP
 import System.Console.ANSI
 import System.Directory
 import System.Exit
@@ -239,12 +239,12 @@ fgrep_line pat bstr
     | BS.null pat   = (BS.empty, BS.empty, bstr)
     | BS.null t     = (bstr,     BS.empty, BS.empty)
     | BS.null rest  = (h, t,     BS.empty)
-    | otherwise     = (head, cat [left, right, "\n"], BS.tail rest)
+    | otherwise     = (h', cat [left, right, "\n"], BS.tail rest)
         where
         (h, t)        = breakBefore pat bstr
         left          = afterLast "\n" h -- FIXME
         (right, rest) = breakBefore "\n" t
-        head          = dropLast (BS.length left) h
+        h' = dropLast (BS.length left) h
 
 
 fgrep' highlight fromLastRS beforeNextRS pat bstr
@@ -361,9 +361,9 @@ toLogEntry sep (l:ls) =
 
 
 lines2log _ [] = []
-lines2log sep (l:ls) = head : tail
-    where head = toLogEntry sep $ l:(takeWhile notsep ls)
-          tail = lines2log sep (dropWhile notsep ls)
+lines2log sep (l:ls) = h : t
+    where h = toLogEntry sep $ l:(takeWhile notsep ls)
+          t = lines2log sep (dropWhile notsep ls)
           notsep line = not (line ==~ sep)
 
 
@@ -378,7 +378,7 @@ logEntry2lines (hdr,ls) = case hdr of
                                Just x  -> (x:ls)
 
 
-matchAny lines re = or $ map (match re) lines
+matchAny ls re = or $ map (match re) ls
 
 matchRecord p le = matchAny (logEntry2lines le) p
 
@@ -410,17 +410,17 @@ toRE opts str = makeRegexOpts (ic) execBlank str
 -- used for OR search and highlights
 composeRE opts str = toRE opts $ DL.intercalate "|" str
 
-hmlgrep_hl re log = catMaybes $ map (matchRecordHighlight re) log
+hmlgrep_hl re logentry = catMaybes $ map (matchRecordHighlight re) logentry
 
 hmlgrep' :: HmlGrepOpts -> Bool -> [String] -> Log -> Log
 hmlgrep' _ _ [] _ = []
 hmlgrep' _ _ _ [] = []
-hmlgrep' opts hl patterns log
-    | o_invert        = filter (not.matcher) log -- never highlights
+hmlgrep' opts hl patterns logs
+    | o_invert        = filter (not.matcher) logs -- never highlights
     | hl              = if o_and
-                        then hmlgrep_hl regexOR $ filter (matcher) log
-                        else hmlgrep_hl regexOR log
-    | otherwise       = filter (matcher) log
+                        then hmlgrep_hl regexOR $ filter (matcher) logs
+                        else hmlgrep_hl regexOR logs
+    | otherwise       = filter (matcher) logs
     where
           -- when there's only one pattern, opt_and is meaningless
           o_and    = (opt_and opts) && (length patterns) /= 1
@@ -521,13 +521,13 @@ runWithOptions opts = do
     then exitSuccess
     else exitFailure
     where
-        useColor opts istty =
+        useColor options istty =
             if opt_invert opts
             then False
             else
                 if istty
-                then not $ opt_mono opts
-                else opt_highlight opts
+                then not $ opt_mono options
+                else opt_highlight options
         openRO fname
             | fname == "-"  = warnIfTerminal >> return stdin
             | otherwise     = openFile fname ReadMode
@@ -577,7 +577,6 @@ main = execParser opts >>= runWithOptions
                   help "Highlight matches. Default is enabled iff stdout is a TTY")
       <*> switch (short 'm' <> long "mono" <>
                   help "Do not Highlight matches.")
-      <*> some (argument str (metavar "PATTERN[...] [--] [FILES...]"))
-
+      <*> some (argument AP.str (metavar "PATTERN[...] [--] [FILES...]"))
 
 -- vim: set makeprg=ghc
