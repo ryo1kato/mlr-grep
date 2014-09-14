@@ -4,23 +4,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import Control.Monad
+import qualified Data.ByteString.Lazy.Search as StrSearch
 import Data.Maybe
 import Options.Applicative
 import System.Console.ANSI
 import System.Directory
 import System.Exit
+import System.IO
+import System.IO.Posix.MMap.Lazy (unsafeMMapFile)
+--import System.IO.MMap (mmapFileByteStringLazy)
 import System.Posix.IO ( stdInput, stdOutput )
--- import System.IO.MMap
-import System.IO.Posix.MMap.Lazy
 import System.Posix.Terminal ( queryTerminal )
 import Text.Regex.PCRE
-import Data.ByteString.Lazy.Search
 import qualified Data.List as DL
 
-import System.IO
+import Debug.Trace
 
-
--- import qualified Data.ByteString.Char8 as BS
+-- import qualified Data.ByteString.Lazy.Char8 as BS
 {-
     Using bytestr.hs, instead of importing the above,
     which is dumb copy of it but with isSuffixOf support
@@ -34,41 +34,27 @@ pack = BS.pack
 cat = BS.concat :: [BS.ByteString] -> BS.ByteString
 
 
+-- breakOn require pattern to be strict ByteString
+breakBefore pattern bstr = StrSearch.breakOn (BS.toStrict pattern) bstr
+
+
 -----------------------------------------------------------------------------
 
 helpdoc = concat $ DL.intersperse " "
-    [ "grep(1) like tool, but \"record-oriented\", instead of line-oriented."
-    , "Useful to search/print multi-line log entries separated by e.g., empty lines,"
-    , "'----' or timestamps, etc."
-    , "If an argument in argument list is a name of"
-    , "existing file or '-' (means stdin), such argument and"
-    , "all arguments after that will be treated as filenames to read from."
-    , "Otherwise arguments are considered to be regex to search."
-    , "(could be confusing if you specify nonexistent filename!)"
---   ,"If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before"
---   ,"reading from it."
-    ]
+  [ "grep(1) like tool, but \"record-oriented\", instead of line-oriented."
+  , "Useful to search/print multi-line log entries separated by e.g., empty"
+  , "lines, '----' or timestamps, etc."
+  , "If an argument in argument list is a name of"
+  , "existing file or '-' (means stdin), such argument and"
+  , "all arguments after that will be treated as filenames to read from."
+  , "Otherwise arguments are considered to be regex to search."
+  , "(could be confusing if you specify nonexistent filename!)"
+  ,"If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before"
+  ,"reading from it."
+  ]
+
 
 -----------------------------------------------------------------------------
---
--- debug
---
-
-{-
-escapeNewline [] = []
-escapeNewline (c:cs) = case c of
-      '\n' -> '\\' : 'n' : escapeNewline cs
-      _    -> c : escapeNewline cs
-
-traceB :: ByteStr -> ByteStr
-traceB b = BS.pack $ traceId $
-    ">>>" ++ hlCode ++ (escapeNewline (BS.unpack b)) ++ hlReset ++ "<<<"
-debug3b triplet =
-    ((u a), (u b), (u c))
-    where
-    (a,b,c) = triplet
--}
-
 
 default_rs   = "^$|^(=====*|-----*)$"
 
@@ -192,7 +178,6 @@ fromLast pat bstr = revSearch 0 bstr
   revSearch n s
         | BS.null s             = bstr -- not found
         | pat `BS.isSuffixOf` s = BS.drop totalDrop bstr
-        -- | otherwise             = revSearch (n+1) (BSUS.unsafeInit s)
         | otherwise             = revSearch (n+1) (BS.init s)
         where
         totalDrop = BS.length bstr - n - BS.length pat
@@ -235,9 +220,9 @@ fgrep_line pat bstr
     | BS.null rest  = (h, t,     BS.empty)
     | otherwise     = (head, cat [left, right, "\n"], BS.tail rest)
         where
-        (h, t)        = breakOn (BS.toStrict pat) bstr
+        (h, t)        = breakBefore pat bstr
         left          = afterLast "\n" h -- FIXME
-        (right, rest) = breakOn "\n" t
+        (right, rest) = breakBefore "\n" t
         head          = dropLast (BS.length left) h
 
 
@@ -256,28 +241,61 @@ fgrep' highlight fromLastRS beforeNextRS pat bstr
                 | otherwise            = BS.empty
 
 
-fgrep :: Bool -> String -> String -> ByteStr -> ByteStr
-fgrep isHl rsStr pat bstr = BS.concat [highlight first, do_fgrep rest]
+-- If pat is '^foo', is converted to '\nfoo' which can't match
+-- an occurrence of 'foo' at very beginning of bstr
+match_head pat bstr =
+    (head pat == '\n') && (pack $ tail pat) `BS.isPrefixOf` bstr
+
+-- Like '^foo', 'foo$' is converted to 'foo\n'.
+match_tail bpat bstr =
+    (BS.last bpat == '\n') && (BS.init bpat) `BS.isSuffixOf` bstr
+
+getRsMatchFuncs rsStr =
+    if isNothing rsPlain
+    then -- RS is Regex
+        (fromLastRegex rsStr, breakNextRegex $ sanitizeRe rsStr)
+    else -- RS is plain text pattern
+        (fromLast rs, breakBefore rs)
     where
         rsPlain   = toPlainString rsStr
         rs        = (pack $ fromJust rsPlain)
-        highlight = if isHl
-                    then highlightAllMatches $ reCompile pat
-                    else id
-        (fromLastRS, beforeNextRS) = if isNothing rsPlain
-            then -- RS is Regex
-                ((fromLastRegex rsStr), (breakNextRegex $ sanitizeRe rsStr))
-            else -- RS is plain text pattern
-                ((fromLast rs), (breakOn $ BS.toStrict rs))
-        do_fgrep = fgrep' highlight fromLastRS beforeNextRS (pack pat)
-        -- when pat is '^foo', is will be converted to '\nfoo' which can't match
-        -- an occurrence of 'foo' at very beginning of bstr
-        (first, rest) = if (head pat == '\n') && (pack $ tail pat) `BS.isPrefixOf` bstr
+
+
+fgrep :: Bool -> String -> String -> ByteStr -> ByteStr
+fgrep isHl rsStr pat bstr = BS.concat [hilite first, do_fgrep rest]
+    where
+        (fromLastRS, beforeNextRS) = getRsMatchFuncs rsStr
+        hilite = if isHl
+                 then highlightAllMatches $ reCompile pat
+                 else id
+        do_fgrep = fgrep' hilite fromLastRS beforeNextRS (pack pat)
+        (first, rest) = if match_head pat bstr
                         then beforeNextRS bstr
                         else (BS.empty, bstr)
 
 
+fgrep_count' beforeNextRS pat bstr
+    | BS.null bstr  = 0
+    | BS.null t     = if match_tail pat bstr
+                      then 1
+                      else 0
+    | otherwise     = 1 + count_rest
+    where
+        (_, t)       = breakBefore pat bstr
+        (_, rest)    = beforeNextRS t
+        count_rest   = fgrep_count' beforeNextRS pat rest
 
+
+fgrep_count :: String -> String -> ByteStr -> Int
+fgrep_count rsStr pat bstr =
+    if BS.null first
+    then     fgrep_count' beforeNextRS (pack pat) bstr
+    else 1 + fgrep_count' beforeNextRS (pack pat) rest
+    where
+        (_, beforeNextRS) = getRsMatchFuncs rsStr
+        (first, rest)     = if match_head pat bstr
+                            then beforeNextRS bstr
+                            else (BS.empty, bstr)
 
 ----------------------------------------------------------------------------
 --
@@ -333,9 +351,10 @@ tryHighlightAllMatchesLines re ls =
 
 
 toLogEntry _ [] = (Nothing, [])
-toLogEntry sep (l:ls) = if (l ==~ sep)
-                then (Just l, ls)
-                else (Nothing, (l:ls)) -- First record without header(separator)
+toLogEntry sep (l:ls) =
+    if (l ==~ sep)
+    then (Just l, ls)
+    else (Nothing, (l:ls)) -- First record without header(separator)
 
 
 lines2log _ [] = []
@@ -421,20 +440,25 @@ hmlgrep opts hl patterns indata =
         if do_command == []
         then (toString do_command, False)
         else (toString do_command, True)
-    where recsep = if opt_timestamp opts
-                   then timestamp_rs
-                   else fromMaybe default_rs (opt_rs opts)
-          logs   = lines2log (toRE opts recsep) $ BS.lines indata
-          toString = if opt_count opts
-                     then (\x -> pack (((show.length) x) ++ "\n"))
-                     else BS.unlines.log2lines
-          do_command = hmlgrep' opts hl patterns logs
-          ---- fgrep ----
-          strPat   = toPlainString (head patterns)
-          isFgrep  = isJust strPat && (length patterns) == 1 &&
-                     not (opt_ignorecase opts || opt_count opts || opt_invert opts)
-                     -- FIXME: use fgrep for --count too.
-          do_fgrep = fgrep hl recsep (fromJust strPat) indata
+    where
+        recsep = if opt_timestamp opts
+                 then timestamp_rs
+                 else fromMaybe default_rs (opt_rs opts)
+        logs   = lines2log (toRE opts recsep) $ BS.lines indata
+        toString = if opt_count opts
+                   then (\x -> pack (((show.length) x) ++ "\n"))
+                   else BS.unlines.log2lines
+        do_command = hmlgrep' opts hl patterns logs
+        ---- fgrep ----
+        strPat   = toPlainString (head patterns)
+        isFgrep  = isJust strPat && (length patterns) == 1 &&
+                   not (opt_ignorecase opts ||
+                        opt_invert opts)
+                   -- FIXME: use fgrep for --count too.
+        do_fgrep = if opt_count opts
+                   then pack $ (show do_fgrep_count ++ "\n")
+                   else fgrep hl recsep (fromJust strPat) indata
+        do_fgrep_count = fgrep_count recsep (fromJust strPat) indata
 
 
 ----------------------------------------------------------------------------
@@ -460,8 +484,8 @@ runPipe cmd outHandle inHandle = do
             return ret
 
 runPipeMmap cmd outHandle fname = do
-    -- stream <- mmapFileByteString fname Nothing
-    stream <- unsafeMMapFile fname
+    -- stream <- mmapFileByteStringLazy fname Nothing -- Uses mmap
+    stream <- unsafeMMapFile fname -- Uses bytestring-mmap
     case cmd stream of
         (result, ret) -> do
             BS.hPutStr outHandle result

@@ -18,12 +18,16 @@ test-result/test.data:
 	mkdir -p test-result
 	./test/gentestlog.sh
 
-hmlgrep: hmlgrep.hs Makefile
+hmlgrep: hmlgrep.hs ByteStr.hs Makefile
 	ghc --make $< $(OPTS)
 
 clean:
-	rm -f hmlgrep
 	rm -f hmlgrep.prof
-	rm -f hmlgrep.o
-	rm -f hmlgrep.hi
+	rm -f *.o
+	rm -f *.hi
+	rm -f test-result/*grep
+	rm -f test-result/*grep.ret
+	rm -f hmlgrep
+
+cleanall:
 	rm -rf test-result
