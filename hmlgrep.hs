@@ -86,8 +86,6 @@ data HmlGrepOpts = HmlGrepOpts {
                  }
 
 -- type LogEntry = (Maybe String, [String])
-type LogEntry = (Maybe ByteStr, [ByteStr])
-type Log      = [LogEntry]
 
 ----------------------------------------------------------------------------
 --
@@ -176,11 +174,12 @@ match_tail bpat bstr =
     (BS.last bpat == '\n') && (BS.init bpat) `BS.isSuffixOf` bstr
 
 
+breakNextRegex :: Regex -> ByteStr -> (ByteStr, ByteStr)
 breakNextRegex re bstr =
     if pos >= 0
     then BS.splitAt (fromIntegral pos) bstr
     else (bstr, BS.empty)
-    where (pos, _) = bstr =~ re :: (MatchOffset,MatchLength)
+    where (pos, _) = match re bstr :: (MatchOffset,MatchLength)
 
 fromLast :: ByteStr -> ByteStr -> ByteStr
 fromLast pat bstr = revSearch 0 bstr
@@ -222,7 +221,7 @@ fromLastRegex re bstr = cat [revSearchRE 0 body, newline]
 getRsMatchFuncs rsStr =
     if isNothing rsPlain
     then -- RS is Regex
-        (fromLastRegex rsStr, breakNextRegex $ sanitizeRe rsStr)
+        (fromLastRegex rsStr, breakNextRegex $ reCompile $ sanitizeRe rsStr)
     else -- RS is plain text pattern
         (fromLast rs, breakBefore rs)
     where
@@ -302,17 +301,19 @@ fgrep_count rsStr pat bstr =
 
 ----------------------------------------------------------------------------
 --
--- Match Highlights
+-- Regex and Match Highlights
 --
 -- hlCode  = setSGRCode [SetColor Foreground Vivid Red]
 hlCode  = setSGRCode [SetSwapForegroundBackground True]
 hlReset = setSGRCode [Reset]
 
 highlightRange :: ByteStr -> (Int, Int) -> ByteStr
-highlightRange str mch = cat [ (BS.take start str), (pack hlCode) ,
-                       (BS.take len $ BS.drop start str), (pack hlReset) ,
-                       (BS.drop (start+len) str)]
-    -- ByteString versions of 'take', 'drop', etc. take Int64, not Int
+highlightRange str mch =
+    cat [ (BS.take start str)
+        , (pack hlCode)
+        , (BS.take len $ BS.drop start str)
+        , (pack hlReset)
+        , (BS.drop (start+len) str)  ]
     where start = fromIntegral (fst mch) :: BSInt
           len   = fromIntegral (snd mch) :: BSInt
 
@@ -323,6 +324,8 @@ highlightRangesRSorted :: ByteStr -> [(Int, Int)] -> ByteStr
 highlightRangesRSorted str [] = str
 highlightRangesRSorted str (r:rs) = highlightRangesRSorted (highlightRange str r) rs
 
+matchAllOf :: [Regex] -> ByteStr -> Bool
+matchAllOf ps logentry = and $ map (\p -> match p logentry) ps
 
 allMatchAsList re str = getAllMatches $
     (match re str :: AllMatches [] (MatchOffset, MatchLength))
@@ -330,106 +333,72 @@ allMatchAsList re str = getAllMatches $
 highlightAllMatches re str = highlightRangesRSorted str (reverse m)
     where m = allMatchAsList re str
 
-tryHighlightAllMatches re str =
+tryHighlightAllMatches re bstr =
     if m == []
     then Nothing
-    else Just (highlightRangesRSorted str (reverse m))
-    where m = allMatchAsList re str
+    else Just (highlightRangesRSorted bstr (reverse m))
+    where m = allMatchAsList re bstr
 
-tryHighlightAllMatchesLines re ls =
-    if concat ms == []
-    then Nothing
-    else Just (zipWith highlight ls ms)
-    where ms = map (allMatchAsList re) ls
-          highlight str m = highlightRangesRSorted str (reverse m)
 
 ----------------------------------------------------------------------------
 --
--- line parsing and regex matching for [LogEntry]
+-- Split input ByteStr with RecordSeparator
 --
 
--- Similar to =~ but RHS is Regex
-(==~) :: ByteStr -> Regex -> Bool
-(==~) source re = match re source
-
-
-toLogEntry _ [] = (Nothing, [])
-toLogEntry sep (l:ls) =
-    if (l ==~ sep)
-    then (Just l, ls)
-    else (Nothing, (l:ls)) -- First record without header(separator)
-
-
-lines2log _ [] = []
-lines2log sep (l:ls) = h : t
-    where h = toLogEntry sep $ l:(takeWhile notsep ls)
-          t = lines2log sep (dropWhile notsep ls)
-          notsep line = not (line ==~ sep)
-
-
-log2lines [] = []
-log2lines ((Nothing, l):[])  = l
-log2lines ((Just h, l):[])   = h : l
-log2lines ((Nothing, l):logs) = l ++ (log2lines logs)
-log2lines ((Just h, l):logs) = h : l ++ (log2lines logs)
-
-logEntry2lines (hdr,ls) = case hdr of
-                               Nothing -> ls
-                               Just x  -> (x:ls)
-
-
-matchAny ls re = or $ map (match re) ls
-
-matchRecord p le = matchAny (logEntry2lines le) p
-
-matchRecordAll ps le = and $ map (matchAny $ logEntry2lines le) ps
-
-matchRecordHighlight p (maybehdr,ls)
-    | isNothing maybehdr =
-        if isNothing hl_ls
-        then Nothing
-        else Just (Nothing, fromMaybe ls hl_ls)
-    | otherwise =
-        if isNothing hl_hdr && isNothing hl_ls
-        then Nothing
-        else Just (Just (fromMaybe hdr hl_hdr), fromMaybe ls hl_ls)
-        where
-            hl_hdr = tryHighlightAllMatches p hdr
-            hl_ls  = tryHighlightAllMatchesLines p ls
-            hdr    = fromJust maybehdr
-
+toLogs :: Regex -> ByteStr -> [ByteStr]
+toLogs sep bstr0 = splitLogs 0 bstr0
+  where
+      splitLogs dropLen bstr
+        | BS.null bstr      =  []
+        | pos < 0           =  bstr : []
+        | matchPos == 0     =  splitLogs matchLen rest
+        | otherwise         =  first : splitLogs matchLen rest
+          where
+            (pos, len)    = match sep (BS.drop (fromIntegral dropLen) bstr)
+                            ::(MatchOffset,MatchLength)
+            (first, rest) = BS.splitAt matchPos bstr
+            matchPos      = fromIntegral (dropLen + pos)
+            matchTailPos  = matchPos + (fromIntegral len)
+            -- FIXME, to be precise, we have to check if we have
+            -- '^' or '$' in the separator pattern
+            matchLen      = if BS.length bstr > matchTailPos &&
+                               '\n' == BS.index bstr matchTailPos
+                            then len + 1
+                            else len
 
 ----------------------------------------------------------------------------
 --
 -- main logic
 --
-toRE opts str = makeRegexOpts (ic) execBlank str
+toRE :: HmlGrepOpts -> String -> Regex
+toRE opts str = makeRegexOpts (ic+compMultiline) execBlank str
     where ic = if (opt_ignorecase opts) then compCaseless else compBlank
 
--- all RE strings combined with '|'
--- used for OR search and highlights
+-- all RE strings combined with '|', used for OR search and highlights
 composeRE opts str = toRE opts $ DL.intercalate "|" str
 
-hmlgrep_hl re logentry = catMaybes $ map (matchRecordHighlight re) logentry
+hmlgrep_hl :: Regex -> [ByteStr] -> [ByteStr]
+hmlgrep_hl re logs = catMaybes $ map (tryHighlightAllMatches re) logs
 
-hmlgrep' :: HmlGrepOpts -> Bool -> [String] -> Log -> Log
+hmlgrep' :: HmlGrepOpts -> Bool -> [String] -> [ByteStr] -> [ByteStr]
 hmlgrep' _ _ [] _ = []
 hmlgrep' _ _ _ [] = []
 hmlgrep' opts hl patterns logs
-    | o_invert        = filter (not.matcher) logs -- never highlights
-    | hl              = if o_and
-                        then hmlgrep_hl regexOR $ filter (matcher) logs
-                        else hmlgrep_hl regexOR logs
-    | otherwise       = filter (matcher) logs
+    | o_invert    = filter (not.matcher) logs -- never highlights
+    | hl          = if o_and
+                    then hmlgrep_hl regexOR $ filter (matcher) logs
+                    else hmlgrep_hl regexOR logs
+    | otherwise   = filter (matcher) logs
     where
-          -- when there's only one pattern, opt_and is meaningless
-          o_and    = (opt_and opts) && (length patterns) /= 1
-          o_invert = opt_invert opts
-          regexs   = map (toRE opts) patterns
-          regexOR  = composeRE opts patterns
-          matcher  = if o_and
-                     then matchRecordAll regexs
-                     else matchRecord regexOR
+        -- when there's only one pattern, opt_and is meaningless
+        o_and    = (opt_and opts) && (length patterns) /= 1
+        o_invert = opt_invert opts
+        regexs   = map (toRE opts) patterns
+        regexOR  = composeRE opts patterns
+        matcher  = if o_and
+                   then matchAllOf regexs
+                   else match regexOR
+
 
 
 hmlgrep :: HmlGrepOpts -> Bool -> [String] -> ByteStr -> (ByteStr, Bool)
@@ -447,10 +416,10 @@ hmlgrep opts hl patterns indata =
         recsep = if opt_timestamp opts
                  then timestamp_rs
                  else fromMaybe default_rs (opt_rs opts)
-        logs   = lines2log (toRE opts recsep) $ BS.lines indata
+        logs   = toLogs (toRE opts recsep) indata
         toString = if opt_count opts
                    then (\x -> pack (((show.length) x) ++ "\n"))
-                   else BS.unlines.log2lines
+                   else BS.concat
         do_command = hmlgrep' opts hl patterns logs
         ---- fgrep ----
         strPat   = toPlainString (head patterns)
