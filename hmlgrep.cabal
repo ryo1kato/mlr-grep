@@ -23,7 +23,7 @@ executable hmlgrep
                        bytestring-mmap >= 0.2.0,
                        directory >= 1.2.0.1,
                        ansi-terminal >= 0.6.1.1,
-                       regex-pcre >= 0.94.4,
+                       regex-tdfa >= 1.2.0,
                        bytestring >= 0.10.4.0,
                        unix >= 2.7.0.1,
                        stringsearch >= 0.3.6.0,

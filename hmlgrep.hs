@@ -17,7 +17,8 @@ import System.IO.Posix.MMap.Lazy (unsafeMMapFile)
 --import System.IO.MMap (mmapFileByteStringLazy)
 import System.Posix.IO ( stdInput, stdOutput )
 import System.Posix.Terminal ( queryTerminal )
-import Text.Regex.PCRE
+-- import Text.Regex.PCRE
+import Text.Regex.TDFA
 import qualified Data.List as DL
 
 
@@ -91,7 +92,10 @@ data HmlGrepOpts = HmlGrepOpts {
 --
 -- Regex Handling Helper Functions
 --
-reCompile pat = makeRegexOpts compMultiline execBlank pat
+-- reCompile pat = makeRegexOpts compMultiline execBlank pat
+reCompile pat = makeRegexOpts defaultCompOpt e pat
+    where e = defaultExecOpt { captureGroups = False }
+
 
 regexChars = "^$(|)[]{}.*"
 regexCharsLast = ")]}.*"
@@ -371,8 +375,12 @@ toLogs sep bstr0 = splitLogs 0 bstr0
 -- main logic
 --
 toRE :: HmlGrepOpts -> String -> Regex
-toRE opts str = makeRegexOpts (ic+compMultiline) execBlank str
-    where ic = if (opt_ignorecase opts) then compCaseless else compBlank
+toRE opts str = makeRegexOpts c e str
+    where
+      c = defaultCompOpt { caseSensitive = (not $ opt_ignorecase opts) }
+      e = defaultExecOpt { captureGroups = False }
+
+
 
 -- all RE strings combined with '|', used for OR search and highlights
 composeRE opts str = toRE opts $ DL.intercalate "|" str
