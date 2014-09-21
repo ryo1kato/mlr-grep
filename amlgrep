@@ -274,7 +274,7 @@ fi
 # read from stdin ("-") if no file name is given
 [ $# -eq 0 ] && set -- '-'
 
-if [ $# -eq 1 -a $1 = '-' -a -t 0 ]
+if [ $# -eq 1 -a "$1" = '-' -a -t 0 ]
 then
     WARN "Reading from terminal"
 fi
