@@ -4,9 +4,10 @@ else
 ifeq ($(MAKECMDGOALS),static)
     OPTS = -static -optl-static -optl-pthread
 else
-	OPTS = -O2 -Wall -fno-warn-missing-signatures
+    OPTS = -O2 -Wall -fno-warn-missing-signatures
 endif
 endif
+GHC = ghc -cpp --make
 
 all: hmlgrep
 prof static: all
@@ -19,7 +20,7 @@ test-result/test.data:
 	./test/gentestlog.sh
 
 hmlgrep: hmlgrep.hs ByteStr.hs Makefile
-	ghc --make $< $(OPTS)
+	$(GHC) $< $(OPTS)
 
 clean:
 	rm -f hmlgrep.prof

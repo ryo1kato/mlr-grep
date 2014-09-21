@@ -2,8 +2,7 @@
 -- hmlgrep - Haskell Multi-Line-Record Grep
 --
 {-# LANGUAGE OverloadedStrings #-}
-
--- import Debug.Trace
+{-# LANGUAGE CPP #-}
 import Control.Monad
 import qualified Data.ByteString.Lazy.Search as StrSearch
 import Data.Maybe
@@ -18,8 +17,10 @@ import System.IO.Posix.MMap.Lazy (unsafeMMapFile)
 import System.Posix.IO ( stdInput, stdOutput )
 import System.Posix.Terminal ( queryTerminal )
 -- import Text.Regex.PCRE
+-- import Text.Regex.PCRE.Light
 import Text.Regex.TDFA
 import qualified Data.List as DL
+-- import Debug.Trace
 
 
 -- import qualified Data.ByteString.Lazy.Char8 as BS
@@ -33,11 +34,27 @@ import Data.Int
 type ByteStr = BS.ByteString
 type BSInt = Int64
 pack = BS.pack
-cat = BS.concat :: [BS.ByteString] -> BS.ByteString
+cat  = BS.concat :: [BS.ByteString] -> BS.ByteString
+size = BS.length
+-- (@@) = BS.index
 
 
 -- breakOn require pattern to be strict ByteString
 breakBefore pattern bstr = StrSearch.breakOn (BS.toStrict pattern) bstr
+
+-----------------------------------------------------------------------------
+-- $setup
+-- The doctest in this module require GHC's `OverloadedStrings`
+-- extension:
+--
+-- >>> :set -XOverloadedStrings
+
+-- for doctest
+u = BS.unpack
+us bs = map BS.unpack bs
+u2 (one, two) = (u one, u two)
+u3 (one, two, three) = (u one, u two, u three)
+_ignore = (u,us,u2,u3) -- suppress compiler warnings
 
 
 -----------------------------------------------------------------------------
@@ -90,13 +107,8 @@ data HmlGrepOpts = HmlGrepOpts {
 
 ----------------------------------------------------------------------------
 --
--- Regex Handling Helper Functions
+-- Regex Conversions
 --
--- reCompile pat = makeRegexOpts compMultiline execBlank pat
-reCompile pat = makeRegexOpts defaultCompOpt e pat
-    where e = defaultExecOpt { captureGroups = False }
-
-
 regexChars = "^$(|)[]{}.*"
 regexCharsLast = ")]}.*"
 ctrlChars = "nt" -- \n, \t
@@ -125,11 +137,16 @@ toPlainString :: String -> Maybe String
 toPlainString ('^':re) = liftM reverse $ toPlainString' "\n" re
 toPlainString re       = liftM reverse $ toPlainString' [] re
 
---
--- convert ^ and $ to '\n' in regex string because
--- with PCRE multiline mode /^$/ matches at very end of "foobar\n"
--- which we don't want.
---
+{- |
+    convert ^ and $ to '\n' in regex string because we don't want to
+    use PCRE multiline mode in which /^$/ matches at very end of "foobar\n"
+    which we don't want.
+
+    >>> _sanitizeRe "^$|^(----*|====*)$"
+    "\n\n|\n(----*|====*)\n"
+    >>> _sanitizeRe "[^]^|$piyo"
+    "[^]^|$piyo"
+-}
 sanitizeRe' [] = []
 sanitizeRe' ('$':[])      =  "\n"
 sanitizeRe' (r:[])        =  r:[]
@@ -137,26 +154,60 @@ sanitizeRe' ('\\':r:rs)   =  '\\' : r : sanitizeRe' rs
 sanitizeRe' ('(':'^':rs)  =  "(\n" ++ sanitizeRe' rs
 sanitizeRe' ('|':'^':rs)  =  "|\n" ++ sanitizeRe' rs
 sanitizeRe' ('$':')':rs)  =  "\n)" ++ sanitizeRe' rs
-sanitizeRe' ('$':'|':rs)  =  "\n|" ++ sanitizeRe' rs
+sanitizeRe' ('$':'|':rs)  =  "\n" ++ sanitizeRe' ('|':rs)
 sanitizeRe' (r1:r2:rs)    =  r1 : sanitizeRe' (r2:rs)
 
-sanitizeRe rs | head rs == '^'  =  '\n' : sanitizeRe' rs
+_sanitizeRe rs | head rs == '^'  =  '\n' : (sanitizeRe' $ tail rs)
               | otherwise       =  sanitizeRe' rs
+
+--
+-- Regex Wrappers to be able to swap underlaying libraries
+--
+-- _toRegex     :: Bool -> String -> Regex
+matchAllOf  :: [Regex] -> ByteStr -> Bool
+firstMatch  :: Regex -> ByteStr -> (Int,Int)
+
+toRegex :: Bool     -- Ignore case
+        -> Bool     -- Multiline mode (convert ^$ to \n)
+        -> String   -- Regex string to compile
+        -> Regex
+#define TDFA
+#if defined(PCRE)
+toRegex caseless multi_line str = makeRegexOpts (ic+ml) execBlank str
+    where ic = if caseless   then compCaseless else compBlank
+          ml = if multi_line then compMultiline else compBlank
+#elif defined(TDFA)
+toRegex caseless multi_line str = makeRegexOpts c e str
+    where
+      c = defaultCompOpt { caseSensitive = (not caseless),
+                           multiline = multi_line }
+      e = defaultExecOpt { captureGroups = False }
+#endif
+
+
+-- all RE strings combined with '|', used for OR search and highlights
+toRegexDisjunction caseless multi_line strs =
+    toRegex caseless multi_line $ DL.intercalate "|" strs
+
+allMatchAsList re str = getAllMatches $
+    (match re str :: AllMatches [] (MatchOffset, MatchLength))
+matchAllOf res bstr = and $ map (\p -> match p bstr) res
+firstMatch re bstr = match re bstr :: (MatchOffset,MatchLength)
+
 
 ----------------------------------------------------------------------------
 --
 -- ByteStr utility functions.
 --
 
-dropLast n bstr = BS.take (BS.length bstr - n) bstr
-takeLast n bstr = BS.drop (BS.length bstr - n) bstr
-{-
-chomp bstr  | BS.null bstr         = bstr
+dropLast n bstr = BS.take (size bstr - n) bstr
+takeLast n bstr = BS.drop (size bstr - n) bstr
+
+_chomp bstr | BS.null bstr         = bstr
             | BS.last bstr == '\n' = BS.init bstr
             | otherwise            = bstr
--}
 
-chompl bstr | BS.null bstr         = bstr
+_chompl bstr | BS.null bstr         = bstr
             | BS.head bstr == '\n' = BS.tail bstr
             | otherwise            = bstr
 
@@ -178,12 +229,23 @@ match_tail bpat bstr =
     (BS.last bpat == '\n') && (BS.init bpat) `BS.isSuffixOf` bstr
 
 
+{- |
+    >>> let re = toRegex False True "^----$|^$"
+    >>> let bstr = "one\ntwo\nthree\n----\nfoo\n\nbar\nbaz"
+    >>> breakNextRegex re bstr
+    ("one\ntwo\nthree\n","----\nfoo\n\nbar\nbaz")
+    >>> let re = toRegex False True "^$"
+    >>> breakNextRegex re bstr
+    ("one\ntwo\nthree\n----\nfoo\n","\nbar\nbaz")
+-}
 breakNextRegex :: Regex -> ByteStr -> (ByteStr, ByteStr)
-breakNextRegex re bstr =
-    if pos >= 0
-    then BS.splitAt (fromIntegral pos) bstr
-    else (bstr, BS.empty)
-    where (pos, _) = match re bstr :: (MatchOffset,MatchLength)
+breakNextRegex re bstr
+    | BS.null bstr  = (BS.empty, BS.empty)
+    | pos < 0       = (bstr, BS.empty)
+    | pos == 0      = (BS.empty, bstr)
+    | otherwise     = BS.splitAt (fromIntegral pos) bstr
+    where
+        (pos, _) = firstMatch re bstr
 
 fromLast :: ByteStr -> ByteStr -> ByteStr
 fromLast pat bstr = revSearch 0 bstr
@@ -193,20 +255,26 @@ fromLast pat bstr = revSearch 0 bstr
         | pat `BS.isSuffixOf` s = BS.drop totalDrop bstr
         | otherwise             = revSearch (n+1) (BS.init s)
         where
-        totalDrop = BS.length bstr - n - BS.length pat
+        totalDrop = (size bstr) - n - (size pat)
 
 afterLast pat bstr
     | BS.null pat  = BS.empty
     | BS.null bstr = bstr
     | otherwise    = if pat `BS.isPrefixOf` fromlast
-                     then BS.drop (BS.length pat) fromlast
+                     then BS.drop (size pat) fromlast
                      else fromlast
         where fromlast = fromLast pat bstr
 
-
+{-|
+    >>> let bstr = "one\ntwo\nthree\n----\nfoo\nbar\nbaz"
+    >>> let reStr = "^----$"
+    >>> fromLastRegex reStr bstr
+    "----\nfoo\nbar\nbaz"
+-}
 fromLastRegex :: String -> ByteStr -> ByteStr
-fromLastRegex re bstr = cat [revSearchRE 0 body, newline]
+fromLastRegex reStr bstr = cat [revSearchRE 0 body, newline]
     where
+    re              = toRegex False False reStr
     -- chomp the trailing '\n' to avoid /^$/ to match very end of
     -- something like "foo\nbar\nbaz\n"
     (body, newline) = chomp2 bstr
@@ -215,23 +283,29 @@ fromLastRegex re bstr = cat [revSearchRE 0 body, newline]
         | offset >= 0 = takeLast (consumed - offset) body
         | otherwise   = revSearchRE consumed remaining
         where
-        lastline    = fromLast "\n" s
-        (offset_, _) = (BS.tail lastline) =~ re :: (MatchOffset,MatchLength)
-        offset      = fromIntegral offset_
-        consumed    = n + BS.length lastline
-        remaining   = dropLast consumed body
+        lastline     = fromLast "\n" s
+        (offset_, _) = if BS.head lastline == '\n'
+                       then firstMatch re (BS.tail lastline)
+                       else firstMatch re lastline
+        offset       = if offset_ < 0 then fromIntegral offset_
+                       else if BS.head lastline == '\n'
+                           then fromIntegral (offset_ + 1)
+                           else fromIntegral offset_
+        consumed     = n + size lastline
+        remaining    = dropLast consumed body
 
 
 getRsMatchFuncs rsStr =
     if isNothing rsPlain
     then -- RS is Regex
-        (fromLastRegex rsStr, breakNextRegex $ reCompile $ sanitizeRe rsStr)
+        (fromLastRegex rsStr,
+         breakNextRegex $ toRegex False True rsStr)
     else -- RS is plain text pattern
-        (fromLast rs, breakBefore rs)
+        (fromLast rs,
+         breakBefore rs)
     where
-        rsPlain   = toPlainString rsStr
-        rs        = (pack $ fromJust rsPlain)
-
+        rsPlain = toPlainString rsStr
+        rs      = (pack $ fromJust rsPlain)
 
 --
 -- split bstr into 3 parts: before, on, and after first line with match
@@ -244,9 +318,9 @@ fgrep_line pat bstr
     | BS.null rest  = (h, t,     BS.empty)
     | otherwise     = (h', cat [left, right, "\n"], BS.tail rest)
         where
-        (h, t)        = breakBefore pat bstr
-        left          = afterLast "\n" h -- FIXME
-        (right, rest) = breakBefore "\n" t
+        (h, t)         = breakBefore pat bstr
+        left           = afterLast "\n" h
+        (right, rest)  = breakBefore "\n" t
         h' = dropLast (BS.length left) h
 
 
@@ -255,16 +329,16 @@ fgrep' highlight fromLastRS beforeNextRS pat bstr
     | BS.null l     = if match_tail pat h
                       then fromLastRS h
                       else BS.empty
-    | otherwise     = cat [match_rec, newline, fgrep_rest]
+    | otherwise     = cat [match_rec, fgrep_rest, newline]
     where
         (h, l, t)    = fgrep_line pat bstr
-        rec1         = chompl $ fromLastRS $ cat [h, l]
+        rec1         = fromLastRS $ cat [h, l]
         (rec2, rest) = beforeNextRS t
         match_rec    = highlight $ cat [rec1, rec2]
         fgrep_rest   = fgrep' highlight fromLastRS beforeNextRS pat rest
-        newline | BS.null rest         = BS.empty
-                | BS.head rest == '\n' = "\n" --the one removed by chompl
-                | otherwise            = BS.empty
+        newline      = if (not $ BS.null rest) && BS.head rest == '\n'
+                       then "\n"
+                       else BS.empty
 
 
 fgrep :: Bool -> String -> String -> ByteStr -> ByteStr
@@ -272,7 +346,7 @@ fgrep isHl rsStr pat bstr = BS.concat [hilite first, do_fgrep rest]
     where
         (fromLastRS, beforeNextRS) = getRsMatchFuncs rsStr
         hilite = if isHl
-                 then highlightAllMatches $ reCompile pat
+                 then highlightAllMatches $ toRegex False True pat
                  else id
         do_fgrep = fgrep' hilite fromLastRS beforeNextRS (pack pat)
         (first, rest) = if match_head pat bstr
@@ -328,12 +402,6 @@ highlightRangesRSorted :: ByteStr -> [(Int, Int)] -> ByteStr
 highlightRangesRSorted str [] = str
 highlightRangesRSorted str (r:rs) = highlightRangesRSorted (highlightRange str r) rs
 
-matchAllOf :: [Regex] -> ByteStr -> Bool
-matchAllOf ps logentry = and $ map (\p -> match p logentry) ps
-
-allMatchAsList re str = getAllMatches $
-    (match re str :: AllMatches [] (MatchOffset, MatchLength))
-
 highlightAllMatches re str = highlightRangesRSorted str (reverse m)
     where m = allMatchAsList re str
 
@@ -349,41 +417,54 @@ tryHighlightAllMatches re bstr =
 -- Split input ByteStr with RecordSeparator
 --
 
+{-| Find position and length of next header(record separator) line,
+    including trailing newline.
+    >>> let re = toRegex True True "^$|^----"
+    >>> findNextHeaderLine re "123456\n----123456"
+    (7,10)
+    >>> findNextHeaderLine re "123456\n----123456\nfoobar"
+    (7,11)
+    >>> findNextHeaderLine re "123456----1234\n\n456"
+    (15,1)
+-}
+findNextHeaderLine sep bstr
+    | pos < 0    = (pos, 0)
+    | otherwise  = (pos, matchLineLen)
+    where
+        (pos, len)      = firstMatch sep bstr
+        endOfMatch      = fromIntegral (pos + len)
+        nextNewLine     = (BS.elemIndex '\n' $ BS.drop endOfMatch bstr)
+                            >>= (\x -> Just (endOfMatch + x + 1))
+        endOfMatchLine  = fromIntegral $ if isJust nextNewLine
+                          then fromJust nextNewLine
+                          else (size bstr)
+        matchLineLen    = endOfMatchLine - fromIntegral pos
+
+{-|
+    >>> let records = ["one\ntwo\nthree\n","-------------\nfoo\nbar\nbaz\n","-----asdf\nhoge\n","\npiyo\nhuga\n"]
+    >>> let bstr = cat records
+    >>> let re = toRegex True True "^$|^----"
+    >>> toLogs re bstr == records
+    True
+-}
 toLogs :: Regex -> ByteStr -> [ByteStr]
 toLogs sep bstr0 = splitLogs 0 bstr0
   where
-      splitLogs dropLen bstr
-        | BS.null bstr      =  []
-        | pos < 0           =  bstr : []
-        | matchPos == 0     =  splitLogs matchLen rest
-        | otherwise         =  first : splitLogs matchLen rest
-          where
-            (pos, len)    = match sep (BS.drop (fromIntegral dropLen) bstr)
-                            ::(MatchOffset,MatchLength)
-            (first, rest) = BS.splitAt matchPos bstr
-            matchPos      = fromIntegral (dropLen + pos)
-            matchTailPos  = matchPos + (fromIntegral len)
-            -- FIXME, to be precise, we have to check if we have
-            -- '^' or '$' in the separator pattern
-            matchLen      = if BS.length bstr > matchTailPos &&
-                               '\n' == BS.index bstr matchTailPos
-                            then len + 1
-                            else len
+  splitLogs dropLen bstr
+    | BS.null bstr   =  []
+    | pos < 0        =  bstr : []
+    | matchPos == 0  =  splitLogs len rest
+    | otherwise      =  first : splitLogs len rest
+        where
+        body           = BS.drop (fromIntegral dropLen) bstr
+        (pos, len)     = findNextHeaderLine sep body
+        matchPos       = fromIntegral (dropLen + pos)
+        (first, rest)  = BS.splitAt matchPos bstr
 
 ----------------------------------------------------------------------------
 --
 -- main logic
 --
-toRE :: HmlGrepOpts -> String -> Regex
-toRE opts str = makeRegexOpts c e str
-    where
-      c = defaultCompOpt { caseSensitive = (not $ opt_ignorecase opts) }
-      e = defaultExecOpt { captureGroups = False }
-
-
-
--- all RE strings combined with '|', used for OR search and highlights
-composeRE opts str = toRE opts $ DL.intercalate "|" str
 
 hmlgrep_hl :: Regex -> [ByteStr] -> [ByteStr]
 hmlgrep_hl re logs = catMaybes $ map (tryHighlightAllMatches re) logs
@@ -401,8 +482,9 @@ hmlgrep' opts hl patterns logs
         -- when there's only one pattern, opt_and is meaningless
         o_and    = (opt_and opts) && (length patterns) /= 1
         o_invert = opt_invert opts
-        regexs   = map (toRE opts) patterns
-        regexOR  = composeRE opts patterns
+        o_ic     = opt_ignorecase opts
+        regexs   = map (toRegex o_ic True) patterns
+        regexOR  = toRegexDisjunction o_ic True patterns
         matcher  = if o_and
                    then matchAllOf regexs
                    else match regexOR
@@ -424,7 +506,7 @@ hmlgrep opts hl patterns indata =
         recsep = if opt_timestamp opts
                  then timestamp_rs
                  else fromMaybe default_rs (opt_rs opts)
-        logs   = toLogs (toRE opts recsep) indata
+        logs   = toLogs (toRegex (opt_ignorecase opts) True recsep) indata
         toString = if opt_count opts
                    then (\x -> pack (((show.length) x) ++ "\n"))
                    else BS.concat

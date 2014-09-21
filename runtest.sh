@@ -14,7 +14,7 @@ strip_ctrl () {
     gawk -v RS='\n' '{ gsub("\033[^m]*m",""); gsub("\017", ""); printf("%s", $0); printf("%s", RT);}'
 }
 
-
+nr_errors=0
 runtest () {
     name="$1"
     shift
@@ -39,20 +39,20 @@ runtest () {
             echo "====================================="
             echo "Inconsistent results: ${reference_cmd} and ${cmd}"
             echo "Arguments were: $*"
-            return 1
+            let nr_errors++ || true
         fi
         if ! diff -u "$t/$name.$reference_cmd" "$t/$name.$cmd"
         then
             echo "====================================="
             echo "Inconsistentfor exit codes: ${reference_cmd} and ${cmd}"
             echo "Arguments were: $*"
-            return 1
+            let nr_errors++ || true
         fi
     done
     return 0
 }
 
-cmds=(hmlgrep amlgrep pymlgrep)
+cmds=(amlgrep hmlgrep pymlgrep)
 
 if [ $# -gt 1 ]
 then
@@ -118,3 +118,12 @@ runtest color_FOO1        -i --color FOO test/test1.txt
 runtest color_foo_multi3  --and foo logentry test/date.txt
 runtest color_rs          --rs '2014' --and ba 2014 loge test/date.txt
 runtest color_rs2         --rs '2014|Mon|Jan' ba test/date.txt
+
+if [ $nr_errors -gt 0 ]
+then
+    echo "$nr_errors ERRORS"
+    exit 1
+else
+    exit 0
+fi
+
