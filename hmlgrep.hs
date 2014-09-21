@@ -22,7 +22,6 @@ import Text.Regex.TDFA
 import qualified Data.List as DL
 -- import Debug.Trace
 
-
 -- import qualified Data.ByteString.Lazy.Char8 as BS
 {-
     Using bytestr.hs, instead of importing the above,
@@ -221,12 +220,21 @@ chomp2 bstr | BS.null bstr         = (BS.empty, BS.empty)
 
 -- If pat is '^foo', is converted to '\nfoo' which can't match
 -- an occurrence of 'foo' at very beginning of bstr
+match_head :: Maybe String -> ByteStr -> Bool
 match_head pat bstr =
-    (head pat == '\n') && (pack $ tail pat) `BS.isPrefixOf` bstr
+    if isNothing pat
+    then False
+    else (head (fromJust pat) == '\n') &&
+         (pack $ tail (fromJust pat)) `BS.isPrefixOf` bstr
 
 -- Like '^foo', 'foo$' is converted to 'foo\n'.
-match_tail bpat bstr =
-    (BS.last bpat == '\n') && (BS.init bpat) `BS.isSuffixOf` bstr
+match_tail :: Maybe String -> ByteStr -> Bool
+match_tail pat bstr =
+    if isNothing pat
+    then False
+    else (BS.last bpat == '\n') && (BS.init bpat) `BS.isSuffixOf` bstr
+    where
+        bpat = pack $ fromJust pat
 
 
 {- |
@@ -294,88 +302,101 @@ fromLastRegex reStr bstr = cat [revSearchRE 0 body, newline]
         consumed     = n + size lastline
         remaining    = dropLast consumed body
 
-
-getRsMatchFuncs rsStr =
-    if isNothing rsPlain
+getMatchFuncs :: Bool -> String -> [String]
+                 -> (Maybe String,
+                     ByteStr -> ByteStr,
+                     ByteStr -> (ByteStr, ByteStr),
+                     ByteStr -> (ByteStr, ByteStr))
+getMatchFuncs caseless rsStr patStrs =
+    if caseless || isNothing rsPlain
     then -- RS is Regex
-        (fromLastRegex rsStr,
-         breakNextRegex $ toRegex False True rsStr)
+        (patPlain,
+         fromLastRegex rsStr,
+         breakOnPattern,
+         breakNextRegex $ toRegex caseless True rsStr)
     else -- RS is plain text pattern
-        (fromLast rs,
+        (patPlain,
+         fromLast rs,
+         breakOnPattern,
          breakBefore rs)
     where
-        rsPlain = toPlainString rsStr
-        rs      = (pack $ fromJust rsPlain)
+        rsPlain         = toPlainString rsStr
+        rs              = (pack $ fromJust rsPlain)
+        patPlain        = toPlainString $ head patStrs
+        breakOnPattern  = if caseless || length patStrs > 1 || isNothing patPlain
+             then breakNextRegex $ toRegexDisjunction caseless True patStrs
+             else breakBefore (pack $ fromJust patPlain)
 
 --
 -- split bstr into 3 parts: before, on, and after first line with match
 --
-fgrep_line :: ByteStr -> ByteStr -> (ByteStr, ByteStr, ByteStr)
-fgrep_line pat bstr
+fgrep_line :: (ByteStr -> (ByteStr, ByteStr))
+           -> ByteStr
+           -> (ByteStr, ByteStr, ByteStr)
+fgrep_line breakOnPattern bstr
     | BS.null bstr  = (BS.empty, BS.empty, BS.empty)
-    | BS.null pat   = (BS.empty, BS.empty, bstr)
     | BS.null t     = (bstr,     BS.empty, BS.empty)
     | BS.null rest  = (h, t,     BS.empty)
     | otherwise     = (h', cat [left, right, "\n"], BS.tail rest)
         where
-        (h, t)         = breakBefore pat bstr
+        (h, t)         = breakOnPattern bstr
         left           = afterLast "\n" h
         (right, rest)  = breakBefore "\n" t
         h' = dropLast (BS.length left) h
 
 
-fgrep' highlight fromLastRS beforeNextRS pat bstr
+fgrep' highlight pat fromLastRS breakOnPattern beforeNextRS bstr
     | BS.null bstr  = BS.empty
     | BS.null l     = if match_tail pat h
                       then fromLastRS h
                       else BS.empty
-    | otherwise     = cat [match_rec, fgrep_rest, newline]
+    | otherwise     = cat [match_rec, newline, fgrep_rest]
     where
-        (h, l, t)    = fgrep_line pat bstr
+        (h, l, t)    = fgrep_line breakOnPattern bstr
         rec1         = fromLastRS $ cat [h, l]
         (rec2, rest) = beforeNextRS t
         match_rec    = highlight $ cat [rec1, rec2]
-        fgrep_rest   = fgrep' highlight fromLastRS beforeNextRS pat rest
-        newline      = if (not $ BS.null rest) && BS.head rest == '\n'
+        fgrep_rest   = fgrep' highlight pat fromLastRS breakOnPattern beforeNextRS rest
+        newline      = if (not $ BS.null rest) && BS.last match_rec /= '\n'
                        then "\n"
                        else BS.empty
 
 
-fgrep :: Bool -> String -> String -> ByteStr -> ByteStr
-fgrep isHl rsStr pat bstr = BS.concat [hilite first, do_fgrep rest]
+fgrep :: Bool -> Bool -> String -> [String] -> ByteStr -> ByteStr
+fgrep isHl o_ic rsStr patStrs bstr = BS.concat [hilite first, do_fgrep rest]
     where
-        (fromLastRS, beforeNextRS) = getRsMatchFuncs rsStr
+        (pat, fromLastRS, breakOnPattern, beforeNextRS)
+                = getMatchFuncs o_ic rsStr patStrs
         hilite = if isHl
-                 then highlightAllMatches $ toRegex False True pat
+                 then highlightAllMatches $ toRegexDisjunction False True patStrs
                  else id
-        do_fgrep = fgrep' hilite fromLastRS beforeNextRS (pack pat)
+        do_fgrep = fgrep' hilite pat fromLastRS breakOnPattern beforeNextRS
         (first, rest) = if match_head pat bstr
                         then beforeNextRS bstr
                         else (BS.empty, bstr)
 
-
-fgrep_count' beforeNextRS pat bstr
+fgrep_count' pat beforeNextRS breakOnPattern bstr
     | BS.null bstr  = 0
     | BS.null t     = if match_tail pat bstr
                       then 1
                       else 0
     | otherwise     = 1 + count_rest
     where
-        (_, t)       = breakBefore pat bstr
+        (_, t)       = breakOnPattern bstr
         (_, rest)    = beforeNextRS t
-        count_rest   = fgrep_count' beforeNextRS pat rest
+        count_rest   = fgrep_count' pat beforeNextRS breakOnPattern rest
 
 
-fgrep_count :: String -> String -> ByteStr -> Int
-fgrep_count rsStr pat bstr =
+fgrep_count :: Bool -> String -> [String] -> ByteStr -> Int
+fgrep_count o_ic rsStr patStrs bstr =
     if BS.null first
-    then     fgrep_count' beforeNextRS (pack pat) bstr
-    else 1 + fgrep_count' beforeNextRS (pack pat) rest
+    then     fgrep_count' pat beforeNextRS breakOnPattern bstr
+    else 1 + fgrep_count' pat beforeNextRS breakOnPattern rest
     where
-        (_, beforeNextRS) = getRsMatchFuncs rsStr
-        (first, rest)     = if match_head pat bstr
-                            then beforeNextRS bstr
-                            else (BS.empty, bstr)
+        (pat, _, breakOnPattern, beforeNextRS) = getMatchFuncs o_ic rsStr patStrs
+        (first, rest)        = if match_head pat bstr
+                               then beforeNextRS bstr
+                               else (BS.empty, bstr)
 
 ----------------------------------------------------------------------------
 --
@@ -503,24 +524,23 @@ hmlgrep opts hl patterns indata =
         then (toString do_command, False)
         else (toString do_command, True)
     where
-        recsep = if opt_timestamp opts
-                 then timestamp_rs
-                 else fromMaybe default_rs (opt_rs opts)
-        logs   = toLogs (toRegex (opt_ignorecase opts) True recsep) indata
+        o_and    = (opt_and opts) && (length patterns) /= 1
+        o_invert = opt_invert opts
+        o_ic     = opt_ignorecase opts
+        rsStr    = if opt_timestamp opts
+                   then timestamp_rs
+                   else fromMaybe default_rs (opt_rs opts)
+        logs     = toLogs (toRegex o_ic True rsStr) indata
         toString = if opt_count opts
                    then (\x -> pack (((show.length) x) ++ "\n"))
                    else BS.concat
         do_command = hmlgrep' opts hl patterns logs
         ---- fgrep ----
-        strPat   = toPlainString (head patterns)
-        isFgrep  = isJust strPat && (length patterns) == 1 &&
-                   not (opt_ignorecase opts ||
-                        opt_invert opts)
-                   -- FIXME: use fgrep for --count too.
+        isFgrep  = not o_and && not o_invert
         do_fgrep = if opt_count opts
                    then pack $ (show do_fgrep_count ++ "\n")
-                   else fgrep hl recsep (fromJust strPat) indata
-        do_fgrep_count = fgrep_count recsep (fromJust strPat) indata
+                   else fgrep hl o_ic rsStr patterns indata
+        do_fgrep_count = fgrep_count o_ic rsStr patterns indata
 
 
 ----------------------------------------------------------------------------

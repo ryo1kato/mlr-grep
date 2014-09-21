@@ -4,7 +4,7 @@ trap 'echo "$0: Unexpected error at line $LINENO" >&2; exit 1;' ERR
 testdata="${1:-test-result/test.data}"
 
 MSG () { echo "$@"; }
-mlgrep=(./aml ./hml ./pyml)
+mlgrep=(./aml ./hml)
 
 if [[ $(grep --version) =~ GNU ]]
 then
@@ -12,7 +12,7 @@ then
 else
     if type gegrep >/dev/null 2>&1
     then
-        localgrep=(e ge)
+        localgrep=(ge)
     else
         localgrep=(e)
         MSG "WARNING: your version of grep is not GNU"
@@ -21,7 +21,7 @@ fi
 cmdprefixes+=("${localgrep[@]}")
 cmdprefixes+=("${mlgrep[@]}")
 
-patterns=(zzzz 'SPARSE$' '^foo' 'ba[rz]')
+patterns=('zzzz' 'SPARSE$' '^foo' 'ba[rz]')
 
 MSG "Caching the file..."
 cat "$testdata" > /dev/null

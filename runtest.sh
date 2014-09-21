@@ -41,10 +41,10 @@ runtest () {
             echo "Arguments were: $*"
             let nr_errors++ || true
         fi
-        if ! diff -u "$t/$name.$reference_cmd" "$t/$name.$cmd"
+        if ! diff -u "$t/$name.$reference_cmd.ret" "$t/$name.$cmd.ret"
         then
             echo "====================================="
-            echo "Inconsistentfor exit codes: ${reference_cmd} and ${cmd}"
+            echo "Inconsistent exit codes: ${reference_cmd} and ${cmd}"
             echo "Arguments were: $*"
             let nr_errors++ || true
         fi
