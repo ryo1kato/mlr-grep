@@ -22,27 +22,26 @@ import Text.Regex.TDFA
 import qualified Data.List as DL
 -- import Debug.Trace
 
-{-
-    Using bytestr.hs, instead of importing the above,
-    which is dumb copy of it but with isSuffixOf support
-    because isSuffixOf is somehow not exported there.
--}
--- import qualified ByteStr as BS
--- import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
--- import Data.Int
 type ByteStr = BS.ByteString
 type BSInt = Int
 pack = BS.pack
 cat  = BS.concat :: [BS.ByteString] -> BS.ByteString
 size = BS.length
--- (@@) = BS.index
 
 
 -- breakOn require pattern to be strict ByteString
 -- breakBefore pattern bstr = StrSearch.breakOn (BS.toStrict pattern) bstr
 breakBefore pattern bstr = StrSearch.breakOn pattern bstr
+
+-- ByteStr utility functions.
+dropLast n bstr = BS.take (size bstr - n) bstr
+takeLast n bstr = BS.drop (size bstr - n) bstr
+chomp2 bstr | BS.null bstr         = (BS.empty, BS.empty)
+            | BS.last bstr == '\n' = (BS.init bstr, "\n")
+            | otherwise            = (bstr, BS.empty)
+
 
 -----------------------------------------------------------------------------
 -- $setup
@@ -76,7 +75,6 @@ helpdoc = concat $ DL.intersperse " "
 
 
 -----------------------------------------------------------------------------
-
 default_rs   = "^$|^(=====*|-----*)$"
 
 re_dow     = "((Mon|Tue|Wed|Thu|Fri|Sat),?[ \t]+)?"
@@ -90,9 +88,7 @@ re_isodate = "20[0-9][0-9]-(0[0-9]|11|12)-(0[1-9]|[12][0-9]|3[01])"
 timestamp_rs = "^(" ++ re_dow ++ re_month ++ re_dty ++ "|"
                     ++ re_isodate ++ ")"
 
-
 ----------------------------------------------------------------------------
-
 data HmlGrepOpts = HmlGrepOpts {
                      opt_and  :: Bool
                    , opt_rs :: Maybe String
@@ -104,8 +100,6 @@ data HmlGrepOpts = HmlGrepOpts {
                    , opt_mono :: Bool
                    , opt_args :: [String]
                  }
-
--- type LogEntry = (Maybe String, [String])
 
 ----------------------------------------------------------------------------
 --
@@ -199,27 +193,42 @@ firstMatch re bstr = match re bstr :: (MatchOffset,MatchLength)
 
 ----------------------------------------------------------------------------
 --
--- ByteStr utility functions.
+-- Regex and Match Highlights
 --
+-- hlCode  = setSGRCode [SetColor Foreground Vivid Red]
+hlCode  = setSGRCode [SetSwapForegroundBackground True]
+hlReset = setSGRCode [Reset]
 
-dropLast n bstr = BS.take (size bstr - n) bstr
-takeLast n bstr = BS.drop (size bstr - n) bstr
+highlightRange :: ByteStr -> (Int, Int) -> ByteStr
+highlightRange str mch =
+    cat [ (BS.take start str)
+        , (pack hlCode)
+        , (BS.take len $ BS.drop start str)
+        , (pack hlReset)
+        , (BS.drop (start+len) str)  ]
+    where start = fromIntegral (fst mch) :: BSInt
+          len   = fromIntegral (snd mch) :: BSInt
 
-_chomp bstr | BS.null bstr         = bstr
-            | BS.last bstr == '\n' = BS.init bstr
-            | otherwise            = bstr
+-- lighlight matches in ByteString with _reverse sorted_ list of matches
+-- It has to be reversed so that we don't have to re-calculate offset everytime
+-- control codes are inserted.
+highlightRangesRSorted :: ByteStr -> [(Int, Int)] -> ByteStr
+highlightRangesRSorted str [] = str
+highlightRangesRSorted str (r:rs) = highlightRangesRSorted (highlightRange str r) rs
 
-_chompl bstr | BS.null bstr         = bstr
-            | BS.head bstr == '\n' = BS.tail bstr
-            | otherwise            = bstr
+highlightAllMatches re str = highlightRangesRSorted str (reverse m)
+    where m = allMatchAsList re str
 
-chomp2 bstr | BS.null bstr         = (BS.empty, BS.empty)
-            | BS.last bstr == '\n' = (BS.init bstr, "\n")
-            | otherwise            = (bstr, BS.empty)
-
-
+tryHighlightAllMatches re bstr =
+    if m == []
+    then Nothing
+    else Just (highlightRangesRSorted bstr (reverse m))
+    where m = allMatchAsList re bstr
 
 ----------------------------------------------------------------------------
+--
+-- Utility functions for find-pattern-first algorithm.
+--
 
 -- If pat is '^foo', is converted to '\nfoo' which can't match
 -- an occurrence of 'foo' at very beginning of bstr
@@ -330,13 +339,18 @@ getMatchFuncs caseless rsStr patStrs =
              then breakNextRegex $ toRegexDisjunction caseless True patStrs
              else breakBefore (pack $ fromJust patPlain)
 
+----------------------------------------------------------------------------
 --
+-- grep - find-pattern-first algorithm.
+--
+
+{-
 -- split bstr into 3 parts: before, on, and after first line with match
---
-fgrep_line :: (ByteStr -> (ByteStr, ByteStr))
+-}
+grep_line :: (ByteStr -> (ByteStr, ByteStr))
            -> ByteStr
            -> (ByteStr, ByteStr, ByteStr)
-fgrep_line breakOnPattern bstr
+grep_line breakOnPattern bstr
     | BS.null bstr  = (BS.empty, BS.empty, BS.empty)
     | BS.null t     = (bstr,     BS.empty, BS.empty)
     | BS.null rest  = (h, t,     BS.empty)
@@ -348,38 +362,38 @@ fgrep_line breakOnPattern bstr
         h' = dropLast (BS.length left) h
 
 
-fgrep' highlight pat fromLastRS breakOnPattern beforeNextRS bstr
+grep' highlight pat fromLastRS breakOnPattern beforeNextRS bstr
     | BS.null bstr  = BL.empty
     | BS.null l     = if match_tail pat h
                       then BL.fromStrict $ fromLastRS h
                       else BL.empty
-    | otherwise     = BL.concat [match_rec, newline, fgrep_rest]
+    | otherwise     = BL.concat [match_rec, newline, grep_rest]
     where
-        (h, l, t)    = fgrep_line breakOnPattern bstr
+        (h, l, t)    = grep_line breakOnPattern bstr
         rec1         = fromLastRS $ cat [h, l]
         (rec2, rest) = beforeNextRS t
         match_rec    = BL.fromStrict $ highlight $ cat [rec1, rec2]
-        fgrep_rest   = fgrep' highlight pat fromLastRS breakOnPattern beforeNextRS rest
+        grep_rest   = grep' highlight pat fromLastRS breakOnPattern beforeNextRS rest
         newline      = if (not $ BS.null rest) && BL.last match_rec /= '\n'
                        then "\n"
                        else BL.empty
 
 
-fgrep :: Bool -> Bool -> String -> [String] -> ByteStr -> BL.ByteString
-fgrep isHl o_ic rsStr patStrs bstr =
-        BL.concat [BL.fromStrict $ hilite first, do_fgrep rest]
+grep :: Bool -> Bool -> String -> [String] -> ByteStr -> BL.ByteString
+grep isHl o_ic rsStr patStrs bstr =
+        BL.concat [BL.fromStrict $ hilite first, do_grep rest]
     where
         (pat, fromLastRS, breakOnPattern, beforeNextRS)
                 = getMatchFuncs o_ic rsStr patStrs
         hilite = if isHl
                  then highlightAllMatches $ toRegexDisjunction False True patStrs
                  else id
-        do_fgrep = fgrep' hilite pat fromLastRS breakOnPattern beforeNextRS
+        do_grep = grep' hilite pat fromLastRS breakOnPattern beforeNextRS
         (first, rest) = if match_head pat bstr
                         then beforeNextRS bstr
                         else (BS.empty, bstr)
 
-fgrep_count' pat beforeNextRS breakOnPattern bstr
+grep_count' pat beforeNextRS breakOnPattern bstr
     | BS.null bstr  = 0
     | BS.null t     = if match_tail pat bstr
                       then 1
@@ -388,58 +402,24 @@ fgrep_count' pat beforeNextRS breakOnPattern bstr
     where
         (_, t)       = breakOnPattern bstr
         (_, rest)    = beforeNextRS t
-        count_rest   = fgrep_count' pat beforeNextRS breakOnPattern rest
+        count_rest   = grep_count' pat beforeNextRS breakOnPattern rest
 
 
-fgrep_count :: Bool -> String -> [String] -> ByteStr -> Int
-fgrep_count o_ic rsStr patStrs bstr =
+grep_count :: Bool -> String -> [String] -> ByteStr -> Int
+grep_count o_ic rsStr patStrs bstr =
     if BS.null first
-    then     fgrep_count' pat beforeNextRS breakOnPattern bstr
-    else 1 + fgrep_count' pat beforeNextRS breakOnPattern rest
+    then     grep_count' pat beforeNextRS breakOnPattern bstr
+    else 1 + grep_count' pat beforeNextRS breakOnPattern rest
     where
         (pat, _, breakOnPattern, beforeNextRS) = getMatchFuncs o_ic rsStr patStrs
         (first, rest)        = if match_head pat bstr
                                then beforeNextRS bstr
                                else (BS.empty, bstr)
 
-----------------------------------------------------------------------------
---
--- Regex and Match Highlights
---
--- hlCode  = setSGRCode [SetColor Foreground Vivid Red]
-hlCode  = setSGRCode [SetSwapForegroundBackground True]
-hlReset = setSGRCode [Reset]
-
-highlightRange :: ByteStr -> (Int, Int) -> ByteStr
-highlightRange str mch =
-    cat [ (BS.take start str)
-        , (pack hlCode)
-        , (BS.take len $ BS.drop start str)
-        , (pack hlReset)
-        , (BS.drop (start+len) str)  ]
-    where start = fromIntegral (fst mch) :: BSInt
-          len   = fromIntegral (snd mch) :: BSInt
-
--- lighlight matches in ByteString with _reverse sorted_ list of matches
--- It has to be reversed so that we don't have to re-calculate offset everytime
--- control codes are inserted.
-highlightRangesRSorted :: ByteStr -> [(Int, Int)] -> ByteStr
-highlightRangesRSorted str [] = str
-highlightRangesRSorted str (r:rs) = highlightRangesRSorted (highlightRange str r) rs
-
-highlightAllMatches re str = highlightRangesRSorted str (reverse m)
-    where m = allMatchAsList re str
-
-tryHighlightAllMatches re bstr =
-    if m == []
-    then Nothing
-    else Just (highlightRangesRSorted bstr (reverse m))
-    where m = allMatchAsList re bstr
-
 
 ----------------------------------------------------------------------------
 --
--- Split input ByteStr with RecordSeparator
+-- Utility functions for split-to-record-first algorithm
 --
 
 {-| Find position and length of next header(record separator) line,
@@ -469,40 +449,40 @@ findNextHeaderLine sep bstr
     >>> let records = ["one\ntwo\nthree\n","-------------\nfoo\nbar\nbaz\n","-----asdf\nhoge\n","\npiyo\nhuga\n"]
     >>> let bstr = cat records
     >>> let re = toRegex True True "^$|^----"
-    >>> toLogs re bstr == records
+    >>> toRecords re bstr == records
     True
 -}
-toLogs :: Regex -> ByteStr -> [ByteStr]
-toLogs sep bstr0 = splitLogs 0 bstr0
+toRecords :: Regex -> ByteStr -> [ByteStr]
+toRecords sep bstr0 = splitRecords 0 bstr0
   where
-  splitLogs dropLen bstr
+  splitRecords dropLen bstr
     | BS.null bstr   =  []
     | pos < 0        =  bstr : []
-    | matchPos == 0  =  splitLogs len rest
-    | otherwise      =  first : splitLogs len rest
+    | matchPos == 0  =  splitRecords len rest
+    | otherwise      =  first : splitRecords len rest
         where
         body           = BS.drop (fromIntegral dropLen) bstr
         (pos, len)     = findNextHeaderLine sep body
         matchPos       = fromIntegral (dropLen + pos)
         (first, rest)  = BS.splitAt matchPos bstr
 
+
 ----------------------------------------------------------------------------
 --
--- main logic
+-- grep - split-to-record-first algorithm
 --
+record_grep_hl :: Regex -> [ByteStr] -> [ByteStr]
+record_grep_hl re records = catMaybes $ map (tryHighlightAllMatches re) records
 
-hmlgrep_hl :: Regex -> [ByteStr] -> [ByteStr]
-hmlgrep_hl re logs = catMaybes $ map (tryHighlightAllMatches re) logs
-
-hmlgrep' :: HmlGrepOpts -> Bool -> [String] -> [ByteStr] -> [ByteStr]
-hmlgrep' _ _ [] _ = []
-hmlgrep' _ _ _ [] = []
-hmlgrep' opts hl patterns logs
-    | o_invert    = filter (not.matcher) logs -- never highlights
+record_grep' :: HmlGrepOpts -> Bool -> [String] -> [ByteStr] -> [ByteStr]
+record_grep' _ _ [] _ = []
+record_grep' _ _ _ [] = []
+record_grep' opts hl patterns records
+    | o_invert    = filter (not.matcher) records -- never highlights
     | hl          = if o_and
-                    then hmlgrep_hl regexOR $ filter (matcher) logs
-                    else hmlgrep_hl regexOR logs
-    | otherwise   = filter (matcher) logs
+                    then record_grep_hl regexOR $ filter (matcher) records
+                    else record_grep_hl regexOR records
+    | otherwise   = filter (matcher) records
     where
         -- when there's only one pattern, opt_and is meaningless
         o_and    = (opt_and opts) && (length patterns) /= 1
@@ -514,19 +494,33 @@ hmlgrep' opts hl patterns logs
                    then matchAllOf regexs
                    else match regexOR
 
+record_grep :: HmlGrepOpts -> Bool -> Regex -> [String] -> ByteStr -> (BL.ByteString, Bool)
+record_grep opts hl rs patterns bstr =
+    if null do_record_grep
+    then (toString do_record_grep, False)
+    else (toString do_record_grep, True)
+    where
+        do_record_grep = record_grep' opts hl patterns $ toRecords rs bstr
+        toString = if opt_count opts
+                   then (\x -> BL.pack (((show.length) x) ++ "\n"))
+                   else BL.concat . (map BL.fromStrict)
 
+
+----------------------------------------------------------------------------
+--
+-- Top most interface to decide to decide which algorithm to use:
+-- find-pattern-first or split-to-records
+--
 
 hmlgrep :: HmlGrepOpts -> Bool -> [String] -> ByteStr -> (BL.ByteString, Bool)
-hmlgrep opts hl patterns indata =
-    if isFgrep
+hmlgrep opts hl patterns bstr =
+    if patternFirst
     then
-        if BL.null do_fgrep
+        if BL.null do_grep
         then (BL.empty, False)
-        else (do_fgrep, True)
+        else (do_grep, True)
     else
-        if do_command == []
-        then (toString do_command, False)
-        else (toString do_command, True)
+        record_grep opts hl (toRegex o_ic True rsStr) patterns bstr
     where
         o_and    = (opt_and opts) && (length patterns) /= 1
         o_invert = opt_invert opts
@@ -534,31 +528,17 @@ hmlgrep opts hl patterns indata =
         rsStr    = if opt_timestamp opts
                    then timestamp_rs
                    else fromMaybe default_rs (opt_rs opts)
-        logs     = toLogs (toRegex o_ic True rsStr) indata
-        toString = if opt_count opts
-                   then (\x -> BL.pack (((show.length) x) ++ "\n"))
-                   else BL.concat . (map BL.fromStrict)
-        do_command = hmlgrep' opts hl patterns logs
-        ---- fgrep ----
-        isFgrep  = not o_and && not o_invert
-        do_fgrep = if opt_count opts
-                   then BL.pack $ (show do_fgrep_count ++ "\n")
-                   else fgrep hl o_ic rsStr patterns indata
-        do_fgrep_count = fgrep_count o_ic rsStr patterns indata
+        patternFirst  = not o_and && not o_invert
+        do_grep       = if opt_count opts
+                        then BL.pack $ (show do_grep_count ++ "\n")
+                        else grep hl o_ic rsStr patterns bstr
+        do_grep_count = grep_count o_ic rsStr patterns bstr
 
 
 ----------------------------------------------------------------------------
 --
 -- Run as a Unix command-line filter (pipe)
 --
-
--- concat input from all files and feed into a command
-_runPipe' cmd outHandle inHandles = do
-    streams <- forM inHandles BS.hGetContents
-    case (cmd $ cat streams) of
-        (result, ret) -> do
-            BL.hPutStr outHandle result
-            return ret
 
 -- open separate streams per file and feed into command separately
 runPipe :: (ByteStr -> (BL.ByteString, Bool)) -> Handle -> Handle -> IO Bool

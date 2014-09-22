@@ -19,7 +19,7 @@ test-result/test.data:
 	mkdir -p test-result
 	./test/gentestlog.sh
 
-hmlgrep: hmlgrep.hs ByteStr.hs Makefile
+hmlgrep: hmlgrep.hs Makefile
 	$(GHC) $< $(OPTS)
 
 clean:
