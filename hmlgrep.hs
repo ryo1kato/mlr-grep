@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE CPP #-}
 import Control.Monad
-import qualified Data.ByteString.Lazy.Search as StrSearch
+import qualified Data.ByteString.Search as StrSearch
 import Data.Maybe
 import Options.Applicative hiding (str)
 import qualified Options.Applicative.Builder as AP
@@ -12,7 +12,7 @@ import System.Console.ANSI
 import System.Directory
 import System.Exit
 import System.IO
-import System.IO.Posix.MMap.Lazy (unsafeMMapFile)
+import System.IO.Posix.MMap (unsafeMMapFile)
 --import System.IO.MMap (mmapFileByteStringLazy)
 import System.Posix.IO ( stdInput, stdOutput )
 import System.Posix.Terminal ( queryTerminal )
@@ -22,16 +22,18 @@ import Text.Regex.TDFA
 import qualified Data.List as DL
 -- import Debug.Trace
 
--- import qualified Data.ByteString.Lazy.Char8 as BS
 {-
     Using bytestr.hs, instead of importing the above,
     which is dumb copy of it but with isSuffixOf support
     because isSuffixOf is somehow not exported there.
 -}
-import qualified ByteStr as BS
-import Data.Int
+-- import qualified ByteStr as BS
+-- import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BL
+-- import Data.Int
 type ByteStr = BS.ByteString
-type BSInt = Int64
+type BSInt = Int
 pack = BS.pack
 cat  = BS.concat :: [BS.ByteString] -> BS.ByteString
 size = BS.length
@@ -39,7 +41,8 @@ size = BS.length
 
 
 -- breakOn require pattern to be strict ByteString
-breakBefore pattern bstr = StrSearch.breakOn (BS.toStrict pattern) bstr
+-- breakBefore pattern bstr = StrSearch.breakOn (BS.toStrict pattern) bstr
+breakBefore pattern bstr = StrSearch.breakOn pattern bstr
 
 -----------------------------------------------------------------------------
 -- $setup
@@ -346,24 +349,25 @@ fgrep_line breakOnPattern bstr
 
 
 fgrep' highlight pat fromLastRS breakOnPattern beforeNextRS bstr
-    | BS.null bstr  = BS.empty
+    | BS.null bstr  = BL.empty
     | BS.null l     = if match_tail pat h
-                      then fromLastRS h
-                      else BS.empty
-    | otherwise     = cat [match_rec, newline, fgrep_rest]
+                      then BL.fromStrict $ fromLastRS h
+                      else BL.empty
+    | otherwise     = BL.concat [match_rec, newline, fgrep_rest]
     where
         (h, l, t)    = fgrep_line breakOnPattern bstr
         rec1         = fromLastRS $ cat [h, l]
         (rec2, rest) = beforeNextRS t
-        match_rec    = highlight $ cat [rec1, rec2]
+        match_rec    = BL.fromStrict $ highlight $ cat [rec1, rec2]
         fgrep_rest   = fgrep' highlight pat fromLastRS breakOnPattern beforeNextRS rest
-        newline      = if (not $ BS.null rest) && BS.last match_rec /= '\n'
+        newline      = if (not $ BS.null rest) && BL.last match_rec /= '\n'
                        then "\n"
-                       else BS.empty
+                       else BL.empty
 
 
-fgrep :: Bool -> Bool -> String -> [String] -> ByteStr -> ByteStr
-fgrep isHl o_ic rsStr patStrs bstr = BS.concat [hilite first, do_fgrep rest]
+fgrep :: Bool -> Bool -> String -> [String] -> ByteStr -> BL.ByteString
+fgrep isHl o_ic rsStr patStrs bstr =
+        BL.concat [BL.fromStrict $ hilite first, do_fgrep rest]
     where
         (pat, fromLastRS, breakOnPattern, beforeNextRS)
                 = getMatchFuncs o_ic rsStr patStrs
@@ -512,12 +516,12 @@ hmlgrep' opts hl patterns logs
 
 
 
-hmlgrep :: HmlGrepOpts -> Bool -> [String] -> ByteStr -> (ByteStr, Bool)
+hmlgrep :: HmlGrepOpts -> Bool -> [String] -> ByteStr -> (BL.ByteString, Bool)
 hmlgrep opts hl patterns indata =
     if isFgrep
     then
-        if BS.null do_fgrep
-        then (BS.empty, False)
+        if BL.null do_fgrep
+        then (BL.empty, False)
         else (do_fgrep, True)
     else
         if do_command == []
@@ -532,13 +536,13 @@ hmlgrep opts hl patterns indata =
                    else fromMaybe default_rs (opt_rs opts)
         logs     = toLogs (toRegex o_ic True rsStr) indata
         toString = if opt_count opts
-                   then (\x -> pack (((show.length) x) ++ "\n"))
-                   else BS.concat
+                   then (\x -> BL.pack (((show.length) x) ++ "\n"))
+                   else BL.concat . (map BL.fromStrict)
         do_command = hmlgrep' opts hl patterns logs
         ---- fgrep ----
         isFgrep  = not o_and && not o_invert
         do_fgrep = if opt_count opts
-                   then pack $ (show do_fgrep_count ++ "\n")
+                   then BL.pack $ (show do_fgrep_count ++ "\n")
                    else fgrep hl o_ic rsStr patterns indata
         do_fgrep_count = fgrep_count o_ic rsStr patterns indata
 
@@ -553,16 +557,16 @@ _runPipe' cmd outHandle inHandles = do
     streams <- forM inHandles BS.hGetContents
     case (cmd $ cat streams) of
         (result, ret) -> do
-            BS.hPutStr outHandle result
+            BL.hPutStr outHandle result
             return ret
 
 -- open separate streams per file and feed into command separately
-runPipe :: (ByteStr -> (ByteStr, Bool)) -> Handle -> Handle -> IO Bool
+runPipe :: (ByteStr -> (BL.ByteString, Bool)) -> Handle -> Handle -> IO Bool
 runPipe cmd outHandle inHandle = do
     stream <- BS.hGetContents inHandle
     case cmd stream of
         (result, ret) -> do
-            BS.hPutStr outHandle result
+            BL.hPutStr outHandle result
             return ret
 
 runPipeMmap cmd outHandle fname = do
@@ -570,7 +574,7 @@ runPipeMmap cmd outHandle fname = do
     stream <- unsafeMMapFile fname -- Uses bytestring-mmap
     case cmd stream of
         (result, ret) -> do
-            BS.hPutStr outHandle result
+            BL.hPutStr outHandle result
             return ret
 
 
