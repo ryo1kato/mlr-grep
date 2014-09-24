@@ -4,7 +4,8 @@ Todo list for stream (a.k.a. do-not-line-unline branch):
 [x] fgrep --count support (?)
 [x] do-not-line-unline for regex keyword
 [x] do-not-line-unline for --invert-match
+[x] do-not-line-unline + search-pattern-first for regex keyword
+[-] minimal ByteStr.hs
 [ ] O(n^2) issue probably perhaps because PCRE regex searches entire input, or BS.cat
-[ ] do-not-line-unline + search-pattern-first for regex keyword
 [ ] backward search limit to a Chunk or two, to free memory
-[ ] minimal ByteStr.hs
+[ ] --sparse / --dense to decide whether to use find-pattern-first algorithm

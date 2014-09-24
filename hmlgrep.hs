@@ -3,27 +3,30 @@
 --
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE CPP #-}
-import Control.Monad
+import           Control.Monad
 import qualified Data.ByteString.Search as StrSearch
-import Data.Maybe
-import Options.Applicative hiding (str)
-import qualified Options.Applicative.Builder as AP
-import System.Console.ANSI
-import System.Directory
-import System.Exit
-import System.IO
-import System.IO.Posix.MMap (unsafeMMapFile)
---import System.IO.MMap (mmapFileByteStringLazy)
-import System.Posix.IO ( stdInput, stdOutput )
-import System.Posix.Terminal ( queryTerminal )
--- import Text.Regex.PCRE
--- import Text.Regex.PCRE.Light
-import Text.Regex.TDFA
+import           Data.Maybe
 import qualified Data.List as DL
--- import Debug.Trace
-
+import           Options.Applicative hiding (str)
+import qualified Options.Applicative.Builder as AP
+import           System.Console.ANSI
+import           System.Directory
+import           System.Exit
+import           System.IO
+import           System.IO.Posix.MMap (unsafeMMapFile)
+--import             System.IO.MMap (mmapFileByteStringLazy)
+import           System.Posix.IO ( stdInput, stdOutput )
+import           System.Posix.Terminal ( queryTerminal )
+--import Debug.Trace
+--import            Text.Regex.PCRE
+--import            Text.Regex.PCRE.Light
+--import           Text.Regex.TDFA
+import           Regex.RE2
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
+
+
+-------- ByteString --------
 type ByteStr = BS.ByteString
 type BSInt = Int
 pack = BS.pack
@@ -41,7 +44,6 @@ takeLast n bstr = BS.drop (size bstr - n) bstr
 chomp2 bstr | BS.null bstr         = (BS.empty, BS.empty)
             | BS.last bstr == '\n' = (BS.init bstr, "\n")
             | otherwise            = (bstr, BS.empty)
-
 
 -----------------------------------------------------------------------------
 -- $setup
@@ -167,7 +169,7 @@ toRegex :: Bool     -- Ignore case
         -> Bool     -- Multiline mode (convert ^$ to \n)
         -> String   -- Regex string to compile
         -> Regex
-#define TDFA
+#define RE2
 #if defined(PCRE)
 toRegex caseless multi_line str = makeRegexOpts (ic+ml) execBlank str
     where ic = if caseless   then compCaseless else compBlank
@@ -178,17 +180,40 @@ toRegex caseless multi_line str = makeRegexOpts c e str
       c = defaultCompOpt { caseSensitive = (not caseless),
                            multiline = multi_line }
       e = defaultExecOpt { captureGroups = False }
+#elif defined(RE2)
+type Regex = Pattern
+toRegex caseless multi_line str = case comp str of
+    Right re   -> re
+    Left _     -> error ("Invalid regex syntax: " ++ str)
+    where
+        comp str =
+            compileWith (defaultOptions {
+                optionPosixSyntax = True,
+                optionPerlClasses = True,
+                optionCaseSensitive = not caseless,
+                optionOneLine = not multi_line
+            }) (pack str)
 #endif
-
 
 -- all RE strings combined with '|', used for OR search and highlights
 toRegexDisjunction caseless multi_line strs =
     toRegex caseless multi_line $ DL.intercalate "|" strs
 
-allMatchAsList re str = getAllMatches $
+#if defined(PCRE) || defined(TDFA)
+hasMatch                = match
+firstMatch re bstr      = match re bstr :: (MatchOffset,MatchLength)
+matchAllOf res bstr     = and $ map (\p -> match p bstr) res
+allMatchAsList re str   = getAllMatches $
     (match re str :: AllMatches [] (MatchOffset, MatchLength))
-matchAllOf res bstr = and $ map (\p -> match p bstr) res
-firstMatch re bstr = match re bstr :: (MatchOffset,MatchLength)
+#elif defined(RE2)
+hasMatch re bstr = isJust result
+    where result = matchPos re bstr 0 (size bstr) Nothing 0
+firstMatch re bstr = case matchPos re bstr 0 (size bstr) Nothing 1 of
+    Nothing -> (-1, 0)
+    Just m  -> fromJust $ matchGroupPos m 0
+matchAllOf res bstr = and $ map (\p -> hasMatch p bstr) res
+#endif
+
 
 
 ----------------------------------------------------------------------------
@@ -196,6 +221,8 @@ firstMatch re bstr = match re bstr :: (MatchOffset,MatchLength)
 -- Regex and Match Highlights
 --
 -- hlCode  = setSGRCode [SetColor Foreground Vivid Red]
+
+#if defined(PCRE) || defined(TDFA)
 hlCode  = setSGRCode [SetSwapForegroundBackground True]
 hlReset = setSGRCode [Reset]
 
@@ -224,6 +251,13 @@ tryHighlightAllMatches re bstr =
     then Nothing
     else Just (highlightRangesRSorted bstr (reverse m))
     where m = allMatchAsList re bstr
+#else
+    -- FIXME --
+highlightAllMatches _ str = str
+tryHighlightAllMatches re bstr = case hasMatch re bstr of
+    True  -> Just bstr
+    False -> Nothing
+#endif
 
 ----------------------------------------------------------------------------
 --
@@ -492,7 +526,7 @@ record_grep' opts hl patterns records
         regexOR  = toRegexDisjunction o_ic True patterns
         matcher  = if o_and
                    then matchAllOf regexs
-                   else match regexOR
+                   else hasMatch regexOR
 
 record_grep :: HmlGrepOpts -> Bool -> Regex -> [String] -> ByteStr -> (BL.ByteString, Bool)
 record_grep opts hl rs patterns bstr =
