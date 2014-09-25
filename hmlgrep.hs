@@ -18,8 +18,7 @@ import           System.IO.Posix.MMap (unsafeMMapFile)
 import           System.Posix.IO ( stdInput, stdOutput )
 import           System.Posix.Terminal ( queryTerminal )
 --import Debug.Trace
---import            Text.Regex.PCRE
---import            Text.Regex.PCRE.Light
+--import           Text.Regex.PCRE
 --import           Text.Regex.TDFA
 import           Regex.RE2
 import qualified Data.ByteString.Char8 as BS
@@ -28,7 +27,9 @@ import qualified Data.ByteString.Lazy.Char8 as BL
 
 -------- ByteString --------
 type ByteStr = BS.ByteString
-type BSInt = Int
+#if defined(PCRE) || defined(TDFA)
+type BSInt = Int -- for ByteString.Lazy
+#endif
 pack = BS.pack
 cat  = BS.concat :: [BS.ByteString] -> BS.ByteString
 size = BS.length
@@ -182,17 +183,17 @@ toRegex caseless multi_line str = makeRegexOpts c e str
       e = defaultExecOpt { captureGroups = False }
 #elif defined(RE2)
 type Regex = Pattern
-toRegex caseless multi_line str = case comp str of
+toRegex caseless multi_line reStr = case comp of
     Right re   -> re
-    Left _     -> error ("Invalid regex syntax: " ++ str)
+    Left _     -> error ("Invalid regex syntax: " ++ reStr)
     where
-        comp str =
+        comp =
             compileWith (defaultOptions {
                 optionPosixSyntax = True,
                 optionPerlClasses = True,
                 optionCaseSensitive = not caseless,
                 optionOneLine = not multi_line
-            }) (pack str)
+            }) (pack reStr)
 #endif
 
 -- all RE strings combined with '|', used for OR search and highlights
@@ -222,10 +223,10 @@ matchAllOf res bstr = and $ map (\p -> hasMatch p bstr) res
 --
 -- hlCode  = setSGRCode [SetColor Foreground Vivid Red]
 
-#if defined(PCRE) || defined(TDFA)
 hlCode  = setSGRCode [SetSwapForegroundBackground True]
 hlReset = setSGRCode [Reset]
 
+#if defined(PCRE) || defined(TDFA)
 highlightRange :: ByteStr -> (Int, Int) -> ByteStr
 highlightRange str mch =
     cat [ (BS.take start str)
@@ -251,12 +252,17 @@ tryHighlightAllMatches re bstr =
     then Nothing
     else Just (highlightRangesRSorted bstr (reverse m))
     where m = allMatchAsList re bstr
-#else
+#elif defined(RE2)
+-- RE2 doesn't have AllMatches, but we can use replaceAll instead --
     -- FIXME --
-highlightAllMatches _ str = str
-tryHighlightAllMatches re bstr = case hasMatch re bstr of
-    True  -> Just bstr
-    False -> Nothing
+_highligh_all re str = replaceAll re str (pack $ hlCode ++ "\\0" ++ hlReset)
+highlightAllMatches re str = replaced
+    where
+    (replaced, _) = _highligh_all re str
+
+tryHighlightAllMatches re bstr = case _highligh_all re bstr of
+    (_, 0)       -> Nothing
+    (replaced, _) -> Just replaced
 #endif
 
 ----------------------------------------------------------------------------
@@ -490,15 +496,15 @@ toRecords :: Regex -> ByteStr -> [ByteStr]
 toRecords sep bstr0 = splitRecords 0 bstr0
   where
   splitRecords dropLen bstr
-    | BS.null bstr   =  []
-    | pos < 0        =  bstr : []
-    | matchPos == 0  =  splitRecords len rest
-    | otherwise      =  first : splitRecords len rest
+    | BS.null bstr      =  []
+    | pos < 0           =  bstr : []
+    | matchOffset == 0  =  splitRecords len rest
+    | otherwise         =  first : splitRecords len rest
         where
         body           = BS.drop (fromIntegral dropLen) bstr
         (pos, len)     = findNextHeaderLine sep body
-        matchPos       = fromIntegral (dropLen + pos)
-        (first, rest)  = BS.splitAt matchPos bstr
+        matchOffset    = fromIntegral (dropLen + pos)
+        (first, rest)  = BS.splitAt matchOffset bstr
 
 
 ----------------------------------------------------------------------------
