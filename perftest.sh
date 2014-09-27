@@ -21,7 +21,7 @@ fi
 cmdprefixes+=("${localgrep[@]}")
 cmdprefixes+=("${mlgrep[@]}")
 
-patterns=('zzzz' 'SPARSE$' '^foo' 'ba[rz]')
+patterns=('zzzz' 'SPARSE$' 'Amazon' 'Ama[Zz]o*n' '^foo' 'ba[rz]')
 
 MSG "Caching the file..."
 cat "$testdata" > /dev/null

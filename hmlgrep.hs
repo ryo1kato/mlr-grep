@@ -18,15 +18,15 @@ import           System.IO.Posix.MMap (unsafeMMapFile)
 --import             System.IO.MMap (mmapFileByteStringLazy)
 import           System.Posix.IO ( stdInput, stdOutput )
 import           System.Posix.Terminal ( queryTerminal )
---import Debug.Trace
---import           Text.Regex.PCRE
+import           Text.Regex.PCRE
 --import           Text.Regex.TDFA
-import           Regex.RE2
+--import           Regex.RE2
 import           Data.ByteString.Builder as B
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
 
 
+#define PCRE
 -------- ByteString --------
 type ByteStr = BS.ByteString
 #if defined(PCRE) || defined(TDFA)
@@ -172,7 +172,6 @@ toRegex :: Bool     -- Ignore case
         -> Bool     -- Multiline mode (convert ^$ to \n)
         -> String   -- Regex string to compile
         -> Regex
-#define RE2
 #if defined(PCRE)
 toRegex caseless multi_line str = makeRegexOpts (ic+ml) execBlank str
     where ic = if caseless   then compCaseless else compBlank
