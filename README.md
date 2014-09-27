@@ -89,7 +89,6 @@ Currently we have AWK, Haskell, and Python implementation.
 They're roughly equivalent, but has a few minor differences.
 For example, AWK version accepts POSIX extended regular expressions and can match multiple lines, while Haskell version uses PCRE regex library and Python has its own variant.
 
-
 ### amlgrep
 An `awk` implementation and is a 'full feature' version - equipped with most of basic grep options like `-i`,`-c`,`-v` options, and it can highlight matches. Also be able to handle compressed files like `*.gz`, `*.bz2`, and `*.xz` transparently. (But you need `gzip`, `bzip2`, and `xz` installation)
 
@@ -97,21 +96,53 @@ Being implemented by `awk`, it should ran on any Unix-like platform though I hav
 
 *KNOWN BUG* Subtle newline (`\n`) handling, it will output slightly wrong output when there's an empty record (two continuous separator lines). For example, when RS=`\n\n`, it consumes both of newlines. So when `\n\n\n` (two empty records with blank line as separator) appears in input, first iteration consume two characters and leave single '\n' behind and next iteration cannot find `\n\n`
 
-This is currently fastest implementation (tested on Ubuntu Linux) and about twice as slow as GNU `grep` when searching with regex pattern. (`grep` is about 8 times faster when searched with non-regex simple keyword as it use Moyer-Moore algorithm instead of regex)
-
-
 ### hmlgrep
 A Haskell implementation. Most actively maintained.
 Known issues:
 * `--count` shows total line numbers only for multiple files
 * `--` is stripped from argument (means you cannot search pattern `--` or search in a file named `--`) This is a bug of `optparse-applicate` and fix is proposed [here](https://github.com/pcapriotti/optparse-applicative/pull/99)
 
-20~30% slower than `amlgrep`
-
+This is currently the fastest implementation in many use cases, often x5 to 10x faster than awk especially for sparse input.
 
 ### pymlgrep
 A Python implementation. Doesn't support `--and`, and only accept single patterns.
 Slowest, sometimes it's about twice slow than `amlgrep` or `hmlgrep`
+
+
+## Install
+* `amlgrep` - Just copy into any directory listed in `$PATH`. On non-Linux systems you may also need to install GNU awk.
+* `hmlgrep` - Install the latest Haskell Platform, and run `cabal install`. You can also use `make` to build it.
+* `pymlgrep` - Just copy into any directory listed in `$PATH`.
+
+
+## Regex Libraries for `hmlgrep`
+Latest version of `hmlgrep` uses `regex-pcre`(Text.Regex.PCRE) as underlaying regex engine and `stringsearch` (Data.ByteString.Search) for non-regex patterns.
+In source code, there's experimental version using `regex-tdfa` and `haskell-re2` (jmillikin's version of Haskell wrapper for Google's regex implementation) disabled and swichable using `#ifdef`.
+
+PCRE is the best with current implementation so far, slightly better than `re2` and much much better than `regex-tdfa`.
+You can use these regex engines just by changing `#define PCRE` to `#define RE2` or `#define TDFA` (and comment/comment-out corresponding `import` statements)
+
+Note that it's using patched version of `haskell-re2` which is available at https://github.com/ryo1kato/haskell-re2/tree/matchPos
+
+
+## Tests
+
+### `runtest.sh`
+Run a commandline-level test. It's simply compare outputs from the three commands.
+
+### `perftest.sh`
+Run a simple performance test for several regex/non-regex and sparse/dense patterns on dummy multi-line log data.
+You have to generate test data using `test/gentestlog.sh` first.
+
+```
+$ ./test/gentestlog.sh
+$ ./performance.sh
+```
+You can change test data size with `./test/gentestlog.sh 512` (generate 512MB test data)
+
+### doctest for `hmlgrep`
+Limited number of unit tests are implemented using doctest.
+Just run it with `cabal test`
 
 
 ## License
