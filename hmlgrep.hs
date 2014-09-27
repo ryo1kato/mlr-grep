@@ -6,6 +6,7 @@
 import           Control.Monad
 import qualified Data.ByteString.Search as StrSearch
 import           Data.Maybe
+import           Data.Monoid
 import qualified Data.List as DL
 import           Options.Applicative hiding (str)
 import qualified Options.Applicative.Builder as AP
@@ -21,6 +22,7 @@ import           System.Posix.Terminal ( queryTerminal )
 --import           Text.Regex.PCRE
 --import           Text.Regex.TDFA
 import           Regex.RE2
+import           Data.ByteString.Builder as B
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
 
@@ -403,25 +405,25 @@ grep_line breakOnPattern bstr
 
 
 grep' highlight pat fromLastRS breakOnPattern beforeNextRS bstr
-    | BS.null bstr  = BL.empty
+    | BS.null bstr  = mempty
     | BS.null l     = if match_tail pat h
-                      then BL.fromStrict $ fromLastRS h
-                      else BL.empty
-    | otherwise     = BL.concat [match_rec, newline, grep_rest]
+                      then B.byteString $ fromLastRS h
+                      else mempty
+    | otherwise     =  B.byteString match_rec <> newline <> grep_rest
     where
         (h, l, t)    = grep_line breakOnPattern bstr
         rec1         = fromLastRS $ cat [h, l]
         (rec2, rest) = beforeNextRS t
-        match_rec    = BL.fromStrict $ highlight $ cat [rec1, rec2]
+        match_rec    = highlight $ cat [rec1, rec2]
         grep_rest   = grep' highlight pat fromLastRS breakOnPattern beforeNextRS rest
-        newline      = if (not $ BS.null rest) && BL.last match_rec /= '\n'
-                       then "\n"
-                       else BL.empty
+        newline      = if (not $ BS.null rest) && BS.last match_rec /= '\n'
+                       then B.char8 '\n'
+                       else mempty
 
 
-grep :: Bool -> Bool -> String -> [String] -> ByteStr -> BL.ByteString
+grep :: Bool -> Bool -> String -> [String] -> ByteStr -> B.Builder
 grep isHl o_ic rsStr patStrs bstr =
-        BL.concat [BL.fromStrict $ hilite first, do_grep rest]
+        (B.byteString $ hilite first) <> do_grep rest
     where
         (pat, fromLastRS, breakOnPattern, beforeNextRS)
                 = getMatchFuncs o_ic rsStr patStrs
@@ -534,16 +536,16 @@ record_grep' opts hl patterns records
                    then matchAllOf regexs
                    else hasMatch regexOR
 
-record_grep :: HmlGrepOpts -> Bool -> Regex -> [String] -> ByteStr -> (BL.ByteString, Bool)
+record_grep :: HmlGrepOpts -> Bool -> Regex -> [String] -> ByteStr -> (Builder, Bool)
 record_grep opts hl rs patterns bstr =
     if null do_record_grep
-    then (toString do_record_grep, False)
-    else (toString do_record_grep, True)
+    then (mconcat $ map B.byteString do_record_grep, False)
+    else (mconcat $ map B.byteString do_record_grep, True)
     where
         do_record_grep = record_grep' opts hl patterns $ toRecords rs bstr
-        toString = if opt_count opts
-                   then (\x -> BL.pack (((show.length) x) ++ "\n"))
-                   else BL.concat . (map BL.fromStrict)
+--        toString = if opt_count opts
+--                   then (\x -> BL.pack (((show.length) x) ++ "\n"))
+--                   else BL.concat . (map BL.fromStrict)
 
 
 ----------------------------------------------------------------------------
@@ -552,13 +554,14 @@ record_grep opts hl rs patterns bstr =
 -- find-pattern-first or split-to-records
 --
 
-hmlgrep :: HmlGrepOpts -> Bool -> [String] -> ByteStr -> (BL.ByteString, Bool)
+hmlgrep :: HmlGrepOpts -> Bool -> [String] -> ByteStr -> (Builder, Bool)
 hmlgrep opts hl patterns bstr =
     if patternFirst
     then
-        if BL.null do_grep
-        then (BL.empty, False)
-        else (do_grep, True)
+        (do_grep, True)
+        -- if BL.null do_grep
+        -- then (BL.empty, False)
+        -- else (do_grep, True)
     else
         record_grep opts hl (toRegex o_ic True rsStr) patterns bstr
     where
@@ -570,7 +573,7 @@ hmlgrep opts hl patterns bstr =
                    else fromMaybe default_rs (opt_rs opts)
         patternFirst  = not o_and && not o_invert
         do_grep       = if opt_count opts
-                        then BL.pack $ (show do_grep_count ++ "\n")
+                        then B.string8 (show do_grep_count ++ "\n")
                         else grep hl o_ic rsStr patterns bstr
         do_grep_count = grep_count o_ic rsStr patterns bstr
 
@@ -581,12 +584,12 @@ hmlgrep opts hl patterns bstr =
 --
 
 -- open separate streams per file and feed into command separately
-runPipe :: (ByteStr -> (BL.ByteString, Bool)) -> Handle -> Handle -> IO Bool
+runPipe :: (ByteStr -> (Builder, Bool)) -> Handle -> Handle -> IO Bool
 runPipe cmd outHandle inHandle = do
     stream <- BS.hGetContents inHandle
     case cmd stream of
         (result, ret) -> do
-            BL.hPutStr outHandle result
+            B.hPutBuilder outHandle result
             return ret
 
 runPipeMmap cmd outHandle fname = do
@@ -594,7 +597,7 @@ runPipeMmap cmd outHandle fname = do
     stream <- unsafeMMapFile fname -- Uses bytestring-mmap
     case cmd stream of
         (result, ret) -> do
-            BL.hPutStr outHandle result
+            B.hPutBuilder outHandle result
             return ret
 
 
