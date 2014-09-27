@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                hmlgrep
-version:             0.1.0.0
+version:             0.2.0.0
 synopsis:            mlr-grep
 description:         Multi-Line-Record grep
 homepage:            https://github.com/ryo1kato/mlr-grep
@@ -23,12 +23,11 @@ executable hmlgrep
                        bytestring-mmap >= 0.2.0,
                        directory >= 1.2.0.1,
                        ansi-terminal >= 0.6.1.1,
-                       regex-tdfa >= 1.2.0,
+                       regex-pcre >= 0.94.0,
                        bytestring >= 0.10.4.0,
                        unix >= 2.7.0.1,
                        stringsearch >= 0.3.6.0,
-                       mmap >= 0.5.9,
-                       re2 >= 0.1
+                       mmap >= 0.5.9
   ghc-options:         -O2 -threaded -Wall -fno-warn-missing-signatures
   default-language:    Haskell2010
 
