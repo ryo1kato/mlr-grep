@@ -536,16 +536,17 @@ record_grep' opts hl patterns records
                    then matchAllOf regexs
                    else hasMatch regexOR
 
-record_grep :: HmlGrepOpts -> Bool -> Regex -> [String] -> ByteStr -> (Builder, Bool)
+record_grep :: HmlGrepOpts -> Bool -> Regex -> [String] -> ByteStr
+                -> (BL.ByteString, Bool)
 record_grep opts hl rs patterns bstr =
     if null do_record_grep
-    then (mconcat $ map B.byteString do_record_grep, False)
-    else (mconcat $ map B.byteString do_record_grep, True)
+    then (toString do_record_grep, False)
+    else (toString do_record_grep, True)
     where
         do_record_grep = record_grep' opts hl patterns $ toRecords rs bstr
---        toString = if opt_count opts
---                   then (\x -> BL.pack (((show.length) x) ++ "\n"))
---                   else BL.concat . (map BL.fromStrict)
+        toString = if opt_count opts
+                   then (\x -> BL.pack (((show.length) x) ++ "\n"))
+                   else B.toLazyByteString . mconcat . (map B.byteString)
 
 
 ----------------------------------------------------------------------------
@@ -554,14 +555,14 @@ record_grep opts hl rs patterns bstr =
 -- find-pattern-first or split-to-records
 --
 
-hmlgrep :: HmlGrepOpts -> Bool -> [String] -> ByteStr -> (Builder, Bool)
+hmlgrep :: HmlGrepOpts -> Bool -> [String] -> ByteStr -> (BL.ByteString, Bool)
 hmlgrep opts hl patterns bstr =
     if patternFirst
     then
-        (do_grep, True)
-        -- if BL.null do_grep
-        -- then (BL.empty, False)
-        -- else (do_grep, True)
+        -- (do_grep, True)
+        if BL.null do_grep
+        then (BL.empty, False)
+        else (do_grep, True)
     else
         record_grep opts hl (toRegex o_ic True rsStr) patterns bstr
     where
@@ -573,8 +574,8 @@ hmlgrep opts hl patterns bstr =
                    else fromMaybe default_rs (opt_rs opts)
         patternFirst  = not o_and && not o_invert
         do_grep       = if opt_count opts
-                        then B.string8 (show do_grep_count ++ "\n")
-                        else grep hl o_ic rsStr patterns bstr
+                        then BL.pack (show do_grep_count ++ "\n")
+                        else B.toLazyByteString $ grep hl o_ic rsStr patterns bstr
         do_grep_count = grep_count o_ic rsStr patterns bstr
 
 
@@ -584,12 +585,15 @@ hmlgrep opts hl patterns bstr =
 --
 
 -- open separate streams per file and feed into command separately
-runPipe :: (ByteStr -> (Builder, Bool)) -> Handle -> Handle -> IO Bool
+runPipe :: (ByteStr -> (BL.ByteString, Bool)) -> Handle -> Handle -> IO Bool
 runPipe cmd outHandle inHandle = do
     stream <- BS.hGetContents inHandle
     case cmd stream of
         (result, ret) -> do
-            B.hPutBuilder outHandle result
+            -- In theory, B.hPutBuilder is faster,
+            -- but it was only less than 4% of difference for 512MB data
+            -- Since there's no easy way to tell if a Build is empty,
+            BL.hPutStr outHandle result
             return ret
 
 runPipeMmap cmd outHandle fname = do
@@ -597,7 +601,7 @@ runPipeMmap cmd outHandle fname = do
     stream <- unsafeMMapFile fname -- Uses bytestring-mmap
     case cmd stream of
         (result, ret) -> do
-            B.hPutBuilder outHandle result
+            BL.hPutStr outHandle result
             return ret
 
 
