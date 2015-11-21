@@ -77,8 +77,8 @@ helpdoc = concat $ DL.intersperse " "
   , "all arguments after that will be treated as filenames to read from."
   , "Otherwise arguments are considered to be regex to search."
   , "(could be confusing if you specify nonexistent filename!)"
-  ,"If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before"
-  ,"reading from it."
+--  ,"If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before"
+--  ,"reading from it."
   ]
 
 
