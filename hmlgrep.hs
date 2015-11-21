@@ -2,6 +2,7 @@
 -- hmlgrep - Haskell Multi-Line-Record Grep
 --
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE CPP #-}
 import           Control.Monad
 import qualified Data.ByteString.Search as StrSearch
@@ -27,6 +28,8 @@ import qualified Data.ByteString.Lazy.Char8 as BL
 
 
 #define PCRE
+
+
 -------- ByteString --------
 type ByteStr = BS.ByteString
 #if defined(PCRE) || defined(TDFA)
@@ -111,8 +114,8 @@ data HmlGrepOpts = HmlGrepOpts {
 -- Regex Conversions
 --
 regexChars = "^$(|)[]{}.*"
-regexCharsLast = ")]}.*"
-ctrlChars = "nt" -- \n, \t
+regexCharsLast = (")]}.*" :: String)
+ctrlChars = ("nt" :: String) -- \n, \t
 toCtrlChars c = case c of
     'n' -> '\n'
     't' -> '\t'
