@@ -25,7 +25,7 @@ import           Text.Regex.PCRE
 import           Data.ByteString.Builder as B
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
-
+import qualified Codec.Compression.GZip as GZip
 
 #define PCRE
 
@@ -600,11 +600,14 @@ runPipe cmd outHandle inHandle = do
 
 runPipeMmap cmd outHandle fname = do
     -- stream <- mmapFileByteStringLazy fname Nothing -- Uses mmap
-    stream <- unsafeMMapFile fname -- Uses bytestring-mmap
-    case cmd stream of
+    stream <- unsafeMMapFile fname
+    case run_pipe stream of
         (result, ret) -> do
             BL.hPutStr outHandle result
             return ret
+    where run_pipe s = if DL.isSuffixOf ".gz" fname
+                       then cmd $ BL.toStrict $ GZip.decompress $ BL.fromStrict s
+                       else cmd s
 
 
 warning str = hPutStr stderr ("WARNING: " ++ str ++ "\n")
@@ -620,8 +623,6 @@ runWithOptions opts = do
     istty <- queryTerminal stdOutput
     let runPipeCmd     = runPipe     (hmlgrep opts (useColor opts istty) ps) stdout
     let runPipeCmdMmap = runPipeMmap (hmlgrep opts (useColor opts istty) ps) stdout
-    let _runPipeCmdPrint fname =
-            hPutStr stdout (fname ++ ":") >> openRO fname >>= runPipeCmd
     let runPipeCmdMmapPrint fname =
             hPutStr stdout (fname ++ ":") >> runPipeCmdMmap fname
     ret <- if fs == []
@@ -640,9 +641,6 @@ runWithOptions opts = do
                 if istty
                 then not $ opt_mono options
                 else opt_highlight options
-        openRO fname
-            | fname == "-"  = warnIfTerminal >> return stdin
-            | otherwise     = openFile fname ReadMode
 
 
 ----------------------------------------------------------------------------

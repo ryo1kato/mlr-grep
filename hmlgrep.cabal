@@ -27,7 +27,8 @@ executable hmlgrep
                        bytestring >= 0.10.4.0,
                        unix >= 2.7.0.1,
                        stringsearch >= 0.3.6.0,
-                       mmap >= 0.5.9
+                       mmap >= 0.5.9,
+                       zlib >= 0.5.4
   ghc-options:         -O2 -threaded -Wall -fno-warn-missing-signatures
   default-language:    Haskell2010
 
