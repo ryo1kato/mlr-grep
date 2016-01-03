@@ -119,6 +119,14 @@ runtest color_foo_multi3  --and foo logentry test/date.txt
 runtest color_rs          --rs '2014' --and ba 2014 loge test/date.txt
 runtest color_rs2         --rs '2014|Mon|Jan' ba test/date.txt
 
+# test for compressed files
+gzip --force --keep test/test1.txt
+runtest color_dot_gz   --color . test/test1.txt.gz
+runtest color_foo1_gz  --color foo test/test1.txt.gz
+runtest color_FOO1_gz  --color FOO test/test1.txt.gz
+rm -f test/test1.txt.gz
+
+
 if [ $nr_errors -gt 0 ]
 then
     echo "$nr_errors ERRORS"
