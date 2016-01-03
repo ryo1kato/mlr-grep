@@ -26,6 +26,8 @@ import           Data.ByteString.Builder as B
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Codec.Compression.GZip as GZip
+import qualified Codec.Compression.BZip as BZip
+import qualified Codec.Compression.Lzma as Lzma
 
 #define PCRE
 
@@ -604,10 +606,16 @@ runPipeMmap cmd outHandle fname = do
         (result, ret) -> do
             BL.hPutStr outHandle result
             return ret
-    where run_pipe s = if DL.isSuffixOf ".gz" fname
-                       then cmd $ BL.toStrict $ GZip.decompress $ BL.fromStrict s
-                       else cmd s
+    -- where run_pipe s = if DL.isSuffixOf ".gz" fname
+    --                    then cmd $ BL.toStrict $ GZip.decompress $ BL.fromStrict s
+    --                    else cmd s
+    where run_pipe s
+            | DL.isSuffixOf ".gz"  fname  = cmd $ decompressStrict GZip.decompress s
+            | DL.isSuffixOf ".bz2" fname  = cmd $ decompressStrict BZip.decompress s
+            | DL.isSuffixOf ".xz"  fname  = cmd $ decompressStrict Lzma.decompress s
+            | otherwise = cmd s
 
+decompressStrict func s = BL.toStrict $ func $ BL.fromStrict s
 
 warning str = hPutStr stderr ("WARNING: " ++ str ++ "\n")
 warnIfTerminal = do

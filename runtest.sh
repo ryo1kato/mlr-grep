@@ -121,11 +121,16 @@ runtest color_rs2         --rs '2014|Mon|Jan' ba test/date.txt
 
 # test for compressed files
 gzip --force --keep test/test1.txt
-runtest color_dot_gz   --color . test/test1.txt.gz
-runtest color_foo1_gz  --color foo test/test1.txt.gz
-runtest color_FOO1_gz  --color FOO test/test1.txt.gz
-rm -f test/test1.txt.gz
+bzip2 --force --keep test/test1.txt
+xz -z --force --keep test/test1.txt
+for z in gz bz2 xz
+do
+    runtest color_dot_$z   --color .   test/test1.txt.$z
+    runtest color_foo1_$z  --color foo test/test1.txt.$z
+    runtest color_FOO1_$z  --color FOO test/test1.txt.$z
+done
 
+rm -f test/test1.txt.gz test/test1.txt.bz2 test/test1.txt.xz
 
 if [ $nr_errors -gt 0 ]
 then
