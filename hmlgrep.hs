@@ -16,20 +16,25 @@ import           System.Directory
 import           System.Exit
 import           System.IO
 import           System.IO.Posix.MMap (unsafeMMapFile)
---import             System.IO.MMap (mmapFileByteStringLazy)
 import           System.Posix.IO ( stdInput, stdOutput )
 import           System.Posix.Terminal ( queryTerminal )
+
+-- To change the regex engine, uncomment an import line and
+-- then #define accordingly.
+-- Note to use RE2, that you need a modified version of haskell-re2 for match
+-- highlighting. (See https://github.com/jmillikin/haskell-re2/pull/1
+-- You can install my fork https://github.com/ryo1kato/haskell-re2)
 import           Text.Regex.PCRE
 --import           Text.Regex.TDFA
 --import           Regex.RE2
+#define PCRE       -- PCRE or TDFA or RE2
+
 import           Data.ByteString.Builder as B
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Codec.Compression.GZip as GZip
 import qualified Codec.Compression.BZip as BZip
 import qualified Codec.Compression.Lzma as Lzma
-
-#define PCRE
 
 
 -------- ByteString --------
@@ -42,8 +47,9 @@ cat  = BS.concat :: [BS.ByteString] -> BS.ByteString
 size = BS.length
 
 
--- breakOn require pattern to be strict ByteString
--- breakBefore pattern bstr = StrSearch.breakOn (BS.toStrict pattern) bstr
+-- If you want to change ByteStr to be a lazy ByteString, note 
+-- that breakOn requires a pattern to be strict ByteString:
+--breakBefore pattern bstr = StrSearch.breakOn (BS.toStrict pattern) bstr
 breakBefore pattern bstr = StrSearch.breakOn pattern bstr
 
 -- ByteStr utility functions.
@@ -79,7 +85,8 @@ helpdoc = concat $ DL.intersperse " "
   , "all arguments after that will be treated as filenames to read from."
   , "Otherwise arguments are considered to be regex to search."
   , "(could be confusing if you specify nonexistent filename!)"
-  , "If a file name ends with .gz, uncompress it on-the-fly."
+--  ,"If a file name ends with .gz, .bz2 or .xz, uncompress it on-the-fly before"
+--  ,"reading from it."
   ]
 
 
@@ -554,7 +561,7 @@ record_grep opts hl rs patterns bstr =
 
 ----------------------------------------------------------------------------
 --
--- Top most interface to decide to decide which algorithm to use:
+-- Top most interface to decide which algorithm to use:
 -- find-pattern-first or split-to-records
 --
 
@@ -562,7 +569,6 @@ hmlgrep :: HmlGrepOpts -> Bool -> [String] -> ByteStr -> (BL.ByteString, Bool)
 hmlgrep opts hl patterns bstr =
     if patternFirst
     then
-        -- (do_grep, True)
         if BL.null do_grep
         then (BL.empty, False)
         else (do_grep, True)
@@ -587,15 +593,16 @@ hmlgrep opts hl patterns bstr =
 -- Run as a Unix command-line filter (pipe)
 --
 
--- open separate streams per file and feed into command separately
 runPipe :: (ByteStr -> (BL.ByteString, Bool)) -> Handle -> Handle -> IO Bool
 runPipe cmd outHandle inHandle = do
     stream <- BS.hGetContents inHandle
     case cmd stream of
         (result, ret) -> do
             -- In theory, B.hPutBuilder is faster,
-            -- but it was only less than 4% of difference for 512MB data
-            -- Since there's no easy way to tell if a Build is empty,
+            -- but it was only less than 4% of difference for 512MB data.
+            -- Since there's no easy way to tell if a Build is empty
+            -- let's use hPubStr here. (and as a nature of grep, we expect
+            -- relatively small output size ... at least compared to input)
             BL.hPutStr outHandle result
             return ret
 
@@ -606,9 +613,6 @@ runPipeMmap cmd outHandle fname = do
         (result, ret) -> do
             BL.hPutStr outHandle result
             return ret
-    -- where run_pipe s = if DL.isSuffixOf ".gz" fname
-    --                    then cmd $ BL.toStrict $ GZip.decompress $ BL.fromStrict s
-    --                    else cmd s
     where run_pipe s
             | DL.isSuffixOf ".gz"  fname  = cmd $ decompressStrict GZip.decompress s
             | DL.isSuffixOf ".bz2" fname  = cmd $ decompressStrict BZip.decompress s
@@ -648,7 +652,6 @@ runWithOptions opts = do
                 if istty
                 then not $ opt_mono options
                 else opt_highlight options
-
 
 ----------------------------------------------------------------------------
 -- Parse ARG1 ARG2 [--] ARG3 ARG4 to ([ARG1, ARG2], [ARG3, ARG4])

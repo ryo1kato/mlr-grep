@@ -1,6 +1,6 @@
-Japanese presentation slide is [available here](http://www.slideshare.net/ryo1kato/mlrgrep-a-recordoriented-grep)
+Presentation slide is [available here](http://www.slideshare.net/ryo1kato/multiline-record-grep) ([Japanese verion](http://www.slideshare.net/ryo1kato/mlrgrep-a-recordoriented-grep))
 
-#mlr-grep - Multi-line Record grep, a Record-Oriented grep.
+# mlr-grep - Multi-line Record grep, a Record-Oriented grep.
 
 Have you ever used `grep`'s  `-A`, `-B`, or `-C` option or pcregrep, or maybe AWK, perl,oneliners, to search something like multi-line log entries?
 Then probably this command is for you.
