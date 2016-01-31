@@ -1,8 +1,8 @@
-Presentation slide is [available here](http://www.slideshare.net/ryo1kato/multiline-record-grep) ([Japanese verion](http://www.slideshare.net/ryo1kato/mlrgrep-a-recordoriented-grep))
+Presentation slide is [available here](http://www.slideshare.net/ryo1kato/multiline-record-grep) ([Japanese version](http://www.slideshare.net/ryo1kato/mlrgrep-a-recordoriented-grep))
 
 # mlr-grep - Multi-line Record grep, a Record-Oriented grep.
 
-Have you ever used `grep`'s  `-A`, `-B`, or `-C` option or pcregrep, or maybe AWK, perl,oneliners, to search something like multi-line log entries?
+Have you ever used `grep`'s  `-A`, `-B`, or `-C` option or pcregrep, or maybe AWK, perl, oneliners, to search something like multi-line log entries?
 Then probably this command is for you.
 
 mlr-grep is like `grep`, but *_record_-oriented* rather than line-oriented; when it finds a match in a line, it prints all lines in the _record_ the match is found. In other words, all the lines around the match, surrounded by _record separator_.
@@ -116,7 +116,7 @@ Slowest, sometimes it's about twice slow than `amlgrep` or `hmlgrep`
 
 
 ## Regex Libraries for `hmlgrep`
-Latest version of `hmlgrep` uses `regex-pcre`(Text.Regex.PCRE) as underlaying regex engine and `stringsearch` (Data.ByteString.Search) for non-regex patterns.
+Latest version of `hmlgrep` uses `regex-pcre`(Text.Regex.PCRE) as underlying regex engine and `stringsearch` (Data.ByteString.Search) for non-regex patterns.
 In source code, there's experimental version using `regex-tdfa` and `haskell-re2` (jmillikin's version of Haskell wrapper for Google's regex implementation) disabled and swichable using `#ifdef`.
 
 PCRE is the best with current implementation so far, slightly better than `re2` and much much better than `regex-tdfa`.
