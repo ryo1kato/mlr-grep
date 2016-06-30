@@ -2,16 +2,18 @@ Presentation slide is [available here](http://www.slideshare.net/ryo1kato/multil
 
 # mlr-grep - Multi-line Record grep, a Record-Oriented grep.
 
-Have you ever used `grep`'s  `-A`, `-B`, or `-C` option or pcregrep, or maybe AWK, perl, oneliners, to search something like multi-line log entries?
+Have you ever used `grep`'s  `-A`, `-B`, or `-C` option or `pcregrep`, or maybe `awk`, `perl`-oneliners, to search something like multi-line log entries?
 Then probably this command is for you.
 
-mlr-grep is like `grep`, but *_record_-oriented* rather than line-oriented; when it finds a match in a line, it prints all lines in the _record_ the match is found. In other words, all the lines around the match, surrounded by _record separator_.
-And of course, you can specify record-separator using `--rs=REGEX` option, default of which is `^$|(-----\*|=====\*)$` (blank line or, four or more dashes). This is similar to `-d` (delimiter) option of [agrep](http://www.tgries.de/agrep/agrephlp.html), but our version accept arbitrary regex as record-separator
+mlr-grep is like `grep`, but *_record_-oriented* rather than line-oriented; when it finds a match in a line, it prints all lines in the _record_ the match is found. In other words, all the lines around the match, surrounded by _record separator_ instead of `\n`s.
+And of course, you can specify record-separator using `--rs=REGEX` option, default of which is `^$|(-----\*|=====\*)$` (blank line or, four or more dashes). This is similar to `-d` (delimiter) option of [agrep](http://www.tgries.de/agrep/agrephlp.html), but our version accept arbitrary regex as a record-separator.
 
 Useful for multi-line logs, config files with indents or section headers (like `*.ini` like format), command output like `ifconfig` or `pbsnodes`
 
+There are three implementations in *Haskell*, *AWK*, and *Python* named `hmlgrep`, `amlgrep`, and `pymlgrep` respectively.
 
-## Basic syntax
+
+## Commandline Syntax
 
 `MLR_GREP [OPTIONS] [--] PATTERN[...] [--] [FILES...]`
 
@@ -86,38 +88,35 @@ $ hmlgrep --timestamp abc logfile
 
 ## Implementations
 Currently we have AWK, Haskell, and Python implementation.
-They're roughly equivalent, but has a few minor differences.
-For example, AWK version accepts POSIX extended regular expressions and can match multiple lines, while Haskell version uses PCRE regex library and Python has its own variant.
+They're roughly equivalent, but have a few minor differences;
+AWK version accepts POSIX extended regular expressions and can match multiple lines, while Haskell version uses PCRE regex library and Python uses its own variant of regex with single-line match only.
 
-### amlgrep
-An `awk` implementation and is a 'full feature' version - equipped with most of basic grep options like `-i`,`-c`,`-v` options, and it can highlight matches. Also be able to handle compressed files like `*.gz`, `*.bz2`, and `*.xz` transparently. (But you need `gzip`, `bzip2`, and `xz` installation)
+Haskell and AWK versions are 'full featured'; equipped with most of the (relevant) grep options like `-i`,`-c`,`-v` options, and it can highlight matches. Also be able to handle compressed files like `*.gz`, `*.bz2`, and `*.xz` transparently. (But you need `gzip`, `bzip2`, and `xz` installation for `amlgrep`)
 
-Being implemented by `awk`, it should ran on any Unix-like platform though I have only tested on Linux (Ubuntu 12.04, RHEL 5.x) and MaxOSX. Note that it requires *GNU awk*, so won't run on MaxOSX out of the box with stock BSD awk.
-
-*KNOWN BUG* Subtle newline (`\n`) handling, it will output slightly wrong output when there's an empty record (two continuous separator lines). For example, when RS=`\n\n`, it consumes both of newlines. So when `\n\n\n` (two empty records with blank line as separator) appears in input, first iteration consume two characters and leave single '\n' behind and next iteration cannot find `\n\n`
 
 ### hmlgrep
-A Haskell implementation. Most actively maintained.
-Known issues:
-* `--count` shows total line numbers only for multiple files
-* `--` is stripped from argument (means you cannot search pattern `--` or search in a file named `--`) This is a bug of `optparse-applicate` and fix is proposed [here](https://github.com/pcapriotti/optparse-applicative/pull/99)
+A Haskell implementation is most actively maintained.
+This is currently the fastest implementation in many use cases, often 5x to 10x faster than awk especially for sparse matches.
 
-This is currently the fastest implementation in many use cases, often x5 to 10x faster than awk especially for sparse input.
+### amlgrep
+An `awk` implementation. Fairly fast for most of the cases, but slow for sparse matches.
+Being implemented by `awk`, it should ran on any Unix-like platform, though I have only tested on Linux (Ubuntu 12.04, RHEL 5.x) and MaxOSX.  Note that it requires *GNU awk*, won't run on MaxOSX out of the box with stock BSD awk.
+
+*KNOWN BUG* : There is an subtle issue around newline (`\n`) handling; `amlgrep` will output slightly wrong output when there's an empty record (two continuous separator lines). For example, when RS=`\n\n`, it consumes both of newlines. So when `\n\n\n` (two empty records with blank line as separator) appears in input, first iteration consume two characters and leave single '\n' behind and next iteration cannot find `\n\n`
 
 ### pymlgrep
-A Python implementation. Doesn't support `--and`, and only accept single patterns.
-Slowest, sometimes it's about twice slow than `amlgrep` or `hmlgrep`
+A Python implementation. Doesn't support `--and`, and accepts just one pattern.
+Slowest, sometimes it's about 20x slower than `amlgrep` or `hmlgrep`
 
 
 ## Install
-* `amlgrep` - Just copy into any directory listed in `$PATH`. On non-Linux systems you may also need to install GNU awk.
+* `amlgrep` - Just copy into any directory listed in your `$PATH`. On non-Linux systems you may also need to install GNU awk. You may also need `zcat`, `bzcat`, and `xzcat` to handle compressed files.
 * `hmlgrep` - Install the latest Haskell Platform, and run `cabal install`. You can also use `make` to build it.
-* `pymlgrep` - Just copy into any directory listed in `$PATH`.
+* `pymlgrep` - Just copy into any directory listed in your `$PATH`.
 
 
 ## Regex Libraries for `hmlgrep`
-Latest version of `hmlgrep` uses `regex-pcre`(Text.Regex.PCRE) as underlying regex engine and `stringsearch` (Data.ByteString.Search) for non-regex patterns.
-In source code, there's experimental version using `regex-tdfa` and `haskell-re2` (jmillikin's version of Haskell wrapper for Google's regex implementation) disabled and swichable using `#ifdef`.
+`hmlgrep` uses `regex-pcre`(Text.Regex.PCRE) as underlying regex engine and `stringsearch` (Data.ByteString.Search) for non-regex patterns. In the source code, there are experimental versions available. They're using `regex-tdfa` and `haskell-re2` (jmillikin's version of Haskell wrapper for Google's regex implementation), disabled and switchable using `#ifdef`.
 
 PCRE is the best with current implementation so far, slightly better than `re2` and much much better than `regex-tdfa`.
 You can use these regex engines just by changing `#define PCRE` to `#define RE2` or `#define TDFA` (and comment/comment-out corresponding `import` statements)
@@ -128,7 +127,7 @@ Note that it's using patched version of `haskell-re2` which is available at http
 ## Tests
 
 ### `runtest.sh`
-Run a commandline-level test. It's simply compare outputs from the three commands.
+Run a commandline-level test. It simply compares outputs from the three commands.
 
 ### `perftest.sh`
 Run a simple performance test for several regex/non-regex and sparse/dense patterns on dummy multi-line log data.
