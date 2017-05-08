@@ -22,6 +22,10 @@ test-result/test.data:
 hmlgrep: hmlgrep.hs Makefile
 	$(GHC) $< $(OPTS)
 
+rmlgrep: rust/src/main.rs
+	cd rust && cargo build --release
+	ln -s rust/target/release/rmlgrep ./rmlgrep
+
 clean:
 	rm -f hmlgrep.prof
 	rm -f *.o
@@ -29,6 +33,8 @@ clean:
 	rm -f test-result/*grep
 	rm -f test-result/*grep.ret
 	rm -f hmlgrep
+	cd rust && cargo clean
+	rm -f rmlgrep
 
 cleanall:
 	rm -rf test-result

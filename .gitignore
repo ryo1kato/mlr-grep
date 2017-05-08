@@ -6,3 +6,4 @@ hmlgrep
 *.prof
 test-result
 dist
+rmlgrep

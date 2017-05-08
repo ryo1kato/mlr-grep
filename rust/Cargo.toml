@@ -1,0 +1,11 @@
+[package]
+
+name = "rmlgrep"
+version = "0.0.1"
+authors = [ "Ryoichi Kato <ryo1kato@gmail.com>" ]
+
+[dependencies]
+getopts = "0.2"
+regex = "0.1"
+libc = "0.2"
+itertools = "0.4"

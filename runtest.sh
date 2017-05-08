@@ -52,7 +52,7 @@ runtest () {
     return 0
 }
 
-cmds=(amlgrep hmlgrep pymlgrep)
+cmds=(amlgrep hmlgrep pymlgrep rmlgrep)
 
 if [ $# -gt 1 ]
 then
@@ -74,14 +74,6 @@ runtest foo_re1   '^foo' test/test[12].txt
 runtest foo_re2   'foo$' test/test[12].txt
 runtest foo_re3   '^foo$' test/test[12].txt
 
-runtest date      -t foo test/date.txt
-runtest foo1_i    -i foo test/test1.txt
-runtest foo2_i    -i foo test/test2.txt
-runtest foo1_c    -c foo test/test1.txt
-runtest foo2_c    -c foo test/test2.txt
-runtest datetime1 -t foo test/date.txt
-runtest datetime2 -t 'logentry 2' test/date.txt
-
 runtest foo1rs    --rs='^----' foo test/test1.txt
 runtest foo1rs2   --rs='----' foo test/test1.txt
 runtest foo1rs3   --rs='----$' foo test/test1.txt
@@ -94,10 +86,20 @@ runtest rs2foobar    --rs='^----$' 'foo bar' test/test1.txt
 runtest rs3foo       --rs='^----$' 'foo'     test/test1.txt
 runtest rs3foobar    --rs='^----$' 'foo bar' test/test1.txt
 
-runtest multifile        foo test/test[23].txt
-runtest multifile_count1 -c foo test/test[12].txt
+runtest multifile              foo test/test[23].txt
+runtest multifile_count1 -c    foo test/test[12].txt
 runtest multifile_count2 -c -i foo test/test[123].txt
 
+runtest foo1_i    -i foo test/test1.txt
+runtest foo2_i    -i foo test/test2.txt
+runtest foo1_c    -c foo test/test1.txt
+runtest foo2_c    -c foo test/test2.txt
+
+runtest date      -t foo test/date.txt
+runtest datetime1 -t foo test/date.txt
+runtest datetime2 -t 'logentry 2' test/date.txt
+
+exit 0
 #----------------------------------------------------------------------
 # pymlgrep doesn't support multiple patterns
 cmds=(hmlgrep amlgrep)
