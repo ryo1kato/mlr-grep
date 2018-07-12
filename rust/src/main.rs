@@ -1,18 +1,15 @@
 extern crate getopts;
 extern crate libc;
 extern crate regex;
-extern crate itertools;
 
 use getopts::Options;
 use regex::Regex;
 use std::boxed::Box;
-use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::fs::File;
 use std::io::{Read,Write,BufReader,BufRead,BufWriter,Error};
 use std::process::exit;
-use itertools::Itertools;
 
 //use std::panic;
 
@@ -69,46 +66,9 @@ fn warn(msg: &str)  { log("WARNING", msg); }
 /***********************************************************************/
 
 fn fputs(bw:&mut BufWriter<Box<Write>>, s:&str) -> Result<(), Error>{
-     bw.write_all(s.as_bytes());
-     bw.write_all("\n".as_bytes())
-}
-
-
-fn re_to_plain_string(s:&str) -> Result<String, ()> {
-    let regex_chars      = r"^$(|)[]{}.*\";
-    let regex_ctrl_chars = r"nt";
-    let mut to_ctrl_char = HashMap::new();
-    to_ctrl_char.insert('n', '\n');
-    to_ctrl_char.insert('t', '\t');
-
-    let mut escaped = String::new();
-
-    let mut i = s.chars().peekable();
-    loop {
-        if let Some(c) = i.next() {
-            if c == '\\' {
-                match i.next() {
-                    None => { escaped.push(c) }
-                    Some(nc) => {
-                        if regex_ctrl_chars.contains(nc) {
-                            escaped.push(*(to_ctrl_char.get(&nc).unwrap()));
-                        } else if regex_chars.contains(nc) {
-                            escaped.push(nc);
-                        } else {
-                            return Err(());
-                        }
-                    }
-                }
-            } else if regex_chars.contains(c) {
-                return Err(());
-            } else {
-                escaped.push(c);
-            }
-        } else {
-            break;
-        }
-    }
-    return Ok(escaped);
+     try!(bw.write_all(s.as_bytes()));
+     try!(bw.write_all("\n".as_bytes()));
+     Ok(())
 }
 
 
@@ -135,21 +95,21 @@ fn mlrgrep<M,G,R>(rs_matcher:M,
                 matching = true;
                 found = true;
                 *counter += 1;
-                reporter(&line.unwrap());
+                try!(reporter(&line.unwrap()));
             } else {
                 rec.push( line.unwrap() );
             }
         } else if matching {
-            reporter(&line.unwrap());
+            try!(reporter(&line.unwrap()));
         } else if grep(line.as_ref().unwrap().as_str()) {
             matching = true;
             found = true;
             *counter += 1;
             for l in rec {
-                reporter(&l);
+                try!(reporter(&l));
             }
             rec = Vec::new();
-            reporter(&line.unwrap());
+            try!(reporter(&line.unwrap()));
         } else {
             rec.push(line.unwrap());
         }
@@ -187,8 +147,8 @@ fn do_grep(flags: getopts::Matches,
 
 
     let mut buf_output = BufWriter::new(output);
-    let mut rs_matcher = |line:&str| rs_regex.is_match(line);
-    let mut grep       = |line:&str| pat.is_match(line);
+    let rs_matcher = |line:&str| rs_regex.is_match(line);
+    let grep       = |line:&str| pat.is_match(line);
 
     let fcount = inputs.len();
     let mut found = false;
@@ -205,7 +165,7 @@ fn do_grep(flags: getopts::Matches,
             match mlrgrep(&rs_matcher, &grep, ireader, &mut printer, &mut counter)
             {
                 Err(e) => { return Err(e) }
-                Ok(ret) => { found = true }
+                Ok(_ret) => { found = true }
             }
         }
         if flags.opt_present("count") {
@@ -214,7 +174,7 @@ fn do_grep(flags: getopts::Matches,
             } else {
                 format!("{}", counter)
             };
-            fputs(&mut buf_output, &count_str);
+            try!(fputs(&mut buf_output, &count_str));
         }
     }
 
