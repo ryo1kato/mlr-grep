@@ -52,7 +52,7 @@ runtest () {
     return 0
 }
 
-cmds=(amlgrep hmlgrep pymlgrep rmlgrep)
+cmds=(amlgrep hmlgrep pymlgrep rmlgrep gmlgrep)
 
 if [ $# -gt 1 ]
 then
@@ -86,6 +86,7 @@ runtest rs2foobar    --rs='^----$' 'foo bar' test/test1.txt
 runtest rs3foo       --rs='^----$' 'foo'     test/test1.txt
 runtest rs3foobar    --rs='^----$' 'foo bar' test/test1.txt
 
+cmds=(amlgrep hmlgrep pymlgrep rmlgrep)
 runtest multifile              foo test/test[23].txt
 runtest multifile_count1 -c    foo test/test[12].txt
 runtest multifile_count2 -c -i foo test/test[123].txt
