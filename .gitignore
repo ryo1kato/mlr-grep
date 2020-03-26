@@ -2,9 +2,11 @@
 *.o
 *~
 .*.swp
-hmlgrep
 *.prof
+.stack-work
+stack.yaml
 test-result
 dist
+hmlgrep
 rmlgrep
 gmlgrep
