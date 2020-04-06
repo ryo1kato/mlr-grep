@@ -65,16 +65,16 @@ fn warn(msg: &str)  { log("WARNING", msg); }
 
 /***********************************************************************/
 
-fn fputs(bw:&mut BufWriter<Box<Write>>, s:&str) -> Result<(), Error>{
-     try!(bw.write_all(s.as_bytes()));
-     try!(bw.write_all("\n".as_bytes()));
+fn fputs(bw:&mut BufWriter<Box<dyn Write>>, s:&str) -> Result<(), Error>{
+     bw.write_all(s.as_bytes())?;
+     bw.write_all("\n".as_bytes())?;
      Ok(())
 }
 
 
 fn mlrgrep<M,G,R>(rs_matcher:M,
                   grep:G,
-                  in_reader:Box<BufRead>,
+                  in_reader:Box<dyn BufRead>,
                   mut reporter:R,
                   counter: &mut i32)
         -> Result<bool, Error>
@@ -95,21 +95,21 @@ fn mlrgrep<M,G,R>(rs_matcher:M,
                 matching = true;
                 found = true;
                 *counter += 1;
-                try!(reporter(&line.unwrap()));
+                reporter(&line.unwrap())?;
             } else {
                 rec.push( line.unwrap() );
             }
         } else if matching {
-            try!(reporter(&line.unwrap()));
+            reporter(&line.unwrap())?;
         } else if grep(line.as_ref().unwrap().as_str()) {
             matching = true;
             found = true;
             *counter += 1;
             for l in rec {
-                try!(reporter(&l));
+                reporter(&l)?;
             }
             rec = Vec::new();
-            try!(reporter(&line.unwrap()));
+            reporter(&line.unwrap())?;
         } else {
             rec.push(line.unwrap());
         }
@@ -122,8 +122,8 @@ fn mlrgrep<M,G,R>(rs_matcher:M,
 
 fn do_grep(flags: getopts::Matches,
            patterns: Vec<String>,
-           inputs: Vec<(String, Box<Read>)>,
-           output: Box<Write>)
+           inputs: Vec<(String, Box<dyn Read>)>,
+           output: Box<dyn Write>)
     -> Result<bool, Error>
 {
     let rs = if flags.opt_present("timestamp") {
@@ -153,7 +153,7 @@ fn do_grep(flags: getopts::Matches,
     let fcount = inputs.len();
     let mut found = false;
     for (fname,reader) in inputs {
-        let mut ireader = Box::new(BufReader::new(reader));
+        let ireader = Box::new(BufReader::new(reader));
         let mut counter = 0i32;
         {
             let mut printer = |found:&str| {
@@ -174,7 +174,7 @@ fn do_grep(flags: getopts::Matches,
             } else {
                 format!("{}", counter)
             };
-            try!(fputs(&mut buf_output, &count_str));
+            fputs(&mut buf_output, &count_str)?;
         }
     }
 
@@ -244,7 +244,7 @@ fn main() {
     }
 
 
-    let inputs: Vec<(String, Box<Read>)>;
+    let inputs: Vec<(String, Box<dyn Read>)>;
     if filenames.len() == 0 {
         inputs = vec![(String::from("-"), Box::new(std::io::stdin()))];
         if istty {
@@ -253,12 +253,12 @@ fn main() {
     } else {
         inputs = filenames.iter().map( |fname| {
                     let reader = Box::new(File::open(fname).expect(fname));
-                    (fname.clone(), reader as Box<Read>) }
+                    (fname.clone(), reader as Box<dyn Read>) }
                  ).collect();
     };
 
 
-    match do_grep(opts, patterns, inputs, Box::new(std::io::stdout()) as Box<Write>) {
+    match do_grep(opts, patterns, inputs, Box::new(std::io::stdout()) as Box<dyn Write>) {
         Ok(ret) => {
             if ret {
                 exit(0);
