@@ -1,0 +1,8 @@
+name = "JmlGrep"
+uuid = "39c7df72-b536-46fb-87d2-4c6f36fbd5dc"
+authors = ["Ryoichi Kato <ryo1kato@gmail.com>"]
+version = "0.0.1"
+
+[deps]
+ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
+PackageCompiler = "9b87118b-4619-50d2-8e1e-99f35a4d4d9d"
