@@ -93,11 +93,6 @@ func debug(format string, args ...interface{}) {
 	//fmt.Fprintf(os.Stderr, ">> DEBUG: "+format, args...)
 }
 
-//escape newline for debug output.
-//func esc(s string) {
-//    strings.Replace(s, "\n", "\\n", -1)
-//}
-
 func esc(b []byte) string {
 	return strings.Replace(string(b), "\n", "\\n", -1)
 }
@@ -127,7 +122,17 @@ func regexFinder(restr string) func(d []byte) (pos int, size int) {
 	return func(d []byte) (int, int) {
 		m := re.FindIndex(d)
 		if m != nil {
-			return m[0], (m[1] - m[0])
+			if m[0] == 0 && m[0] == m[1] {
+				// match for ^$ at the very begining to be ignored
+				m2 := re.FindIndex(d[1:])
+				if m2 != nil {
+					return m2[0] + 1, (m2[1] - m2[0])
+				} else {
+					return -1, 0
+				}
+			} else {
+				return m[0], (m[1] - m[0])
+			}
 		} else {
 			return -1, 0
 		}
@@ -153,14 +158,7 @@ func (s *SplitRecordFirstFinder) Split(data []byte, atEOF bool) (advance int, to
 		} else {
 			return 0, nil, nil //not enough data
 		}
-	}
-	if pos+sz == 0 {
-		//FIXME: is this the best way to handle empty match?
-		// The only known case so far is when using /^$/ with (?m) flag
-		s.rsPos = 1
-		return 1, data[0:1], nil
 	} else {
-		debug("Not empty\n")
 		s.rsPos = pos
 		return pos + sz, data[0 : pos+sz], nil
 	}
