@@ -5,8 +5,10 @@
 *.prof
 .stack-work
 stack.yaml
+stack.yaml.lock
 test-result
 dist
 hmlgrep
 rmlgrep
 gmlgrep
+jmlgrep

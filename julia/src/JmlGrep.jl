@@ -1,9 +1,19 @@
 #!/usr/bin/env julia --project=@.
+#
+# TODO:
+#   [ ] basic features: --rs, -v, -i, -c
+#   [ ] additional features multiple patterns, --and
+#   [ ] additional features: --color, --mono with terminal detection
+#   [ ] multi-line record-separator
+#   [ ] performance: use Boyre-moore or KMR for non-regex match
+#   [ ] performance : mmap
+#   [ ] performance: find-pattern-first algorithm for sparse matches
+#
 module JmlGrep
 
 using ArgParse
 
-const RS_DEFAULT = "\\n\\n|\\n(=====*|-----*)\\n"
+const RS_DEFAULT = "^\$|^(=====*|-----*)\$"
 
 re_dow="((Mon|Tue|Wed|Thu|Fri|Sat),?[ \t]+)?"
 re_month="(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Dec),?[ \t]*"
@@ -26,20 +36,21 @@ function parse_commandline()
         "--count", "-c"
             help =  "Print number of matches."
             action = :store_true
-        "--color"
-            help = "Highlight matches even when the output is a file."
-            action = :store_true
-            dest_name = "highlight"
-        "--mono"
-            help = "Do not highlight matches even when the output is a terminal"
-            action = :store_true
-            dest_name = "highlight"
-        "--and", "-a"
-            help = "Print entries match with all, instead of any, of PATTERNS."
-            action = :store_true
         "--rs", "-r"
             help = "Set input record separater. Default is: \"$RS_DEFAULT\""
             arg_type = String
+            default = RS_DEFAULT
+#        "--color"
+#            help = "Highlight matches even when the output is a file."
+#            action = :store_true
+#            dest_name = "highlight"
+#        "--mono"
+#            help = "Do not highlight matches even when the output is a terminal"
+#            action = :store_true
+#            dest_name = "highlight"
+#        "--and", "-a"
+#            help = "Print entries match with all, instead of any, of PATTERNS."
+#            action = :store_true
         "--timestamp", "-t"
             help = "Synomym for --rs=REGEX_DATETIME, where the regex matches strings like '\n2014-12-31 12:34:56' or '\nDec 31 12:34:56'"
             action = :store_true
@@ -56,40 +67,39 @@ function parse_commandline()
     return parse_args(s)
 end
 
-function is_regex(pat ::String) :Bool
-    return true # FIXME - if not regex, 
-end
 
-
-function mlgrep(input ::IOStream, pat ::String; invert=false::Bool, ignore_case=false::Bool) :Bool
+function mlgrep(input ::IOStream, rs::Regex, pat::Regex; invert=false::Bool, ignore_case=false::Bool) :Int
+    count = 0
     found = false
+    rec = []
     for line in eachline(input)
-        if xor(!occursin(pat, line), invert)
-            println(line)
-            found = true
+        if !isnothing(match(rs, line))
+            if found
+                for recline in rec
+                    println(recline)
+                end
+            end
+            rec = [line]
+            found = false
+        else
+            push!(rec, line)
+            m = match(pat, line)
+            if xor(!isnothing(m), invert)
+                found = true
+            end
         end
     end
-    return found
-end
-
-function mlgrep(input ::IOStream, re::Regex; invert=false::Bool, ignore_case=false::Bool) :Bool
-    found = false
-    for line in eachline(input)
-        m = match(re, line)
-        if xor(!isnothing(m), invert)
-            println(line)
-            found = true
+    if found
+        for recline in rec
+            println(recline)
         end
     end
-    return found
+
+    return count
 end
 
 function main()
     args = parse_commandline()
-    #println("Parsed args:")
-    #for (arg,val) in args
-    #    println("  $arg  =>  $val")
-    #end
 
     if isnothing(args["file"])
         input = stdin
@@ -98,11 +108,11 @@ function main()
     end
 
     pat = Regex(args["pattern"])
-    #pat = args["pattern"]
+    rs = Regex(args["rs"])
 
-    found = mlgrep(input, pat, invert=args["invert-match"])
+    count = mlgrep(input, rs, pat, invert=args["invert-match"])
 
-    if found
+    if count > 0
         return 0
     else
         return 1
