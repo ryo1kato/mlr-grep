@@ -52,6 +52,7 @@ runtest () {
         then
             continue
         fi
+        INFO "  <$cmd>"
         if ! diff -u "$t/$name.$reference_cmd" "$t/$name.$cmd"
         then
             echo
@@ -146,13 +147,15 @@ runtest rs2foobar    --rs='^----$' 'foo bar' test/test1.txt
 runtest rs3foo       --rs='^----$' 'foo'     test/test1.txt
 runtest rs3foobar    --rs='^----$' 'foo bar' test/test1.txt
 
+## -------- --datetime option --------
+cmds=(amlgrep hmlgrep pymlgrep rmlgrep jmlgrep)
+runtest date      -t foo test/date.txt
+runtest datetime1 -t foo test/date.txt
+runtest datetime2 -t 'logentry 2' test/date.txt
 
-## -------- advanced 1 --------
+
+## -------- --count, --ignore-case options --------
 cmds=(amlgrep hmlgrep pymlgrep rmlgrep)
-runtest foo_re1   '^foo' test/test[12].txt
-runtest foo_re2   'foo$' test/test[12].txt
-runtest foo_re3   '^foo$' test/test[12].txt
-
 runtest multifile              foo test/test[23].txt
 runtest multifile_count1 -c    foo test/test[12].txt
 runtest multifile_count2 -c -i foo test/test[123].txt
@@ -162,12 +165,15 @@ runtest foo2_i    -i foo test/test2.txt
 runtest foo1_c    -c foo test/test1.txt
 runtest foo2_c    -c foo test/test2.txt
 
-runtest date      -t foo test/date.txt
-runtest datetime1 -t foo test/date.txt
-runtest datetime2 -t 'logentry 2' test/date.txt
+
+## -------- multiple files --------
+cmds=(amlgrep hmlgrep pymlgrep rmlgrep)
+runtest foo_re1   '^foo' test/test[12].txt
+runtest foo_re2   'foo$' test/test[12].txt
+runtest foo_re3   '^foo$' test/test[12].txt
 
 
-## -------- advanced 2 --------
+## -------- multiple patterns, --and --------
 cmds=(hmlgrep amlgrep)
 
 runtest foo_multi1  FOO foo test/test1.txt
@@ -186,7 +192,7 @@ runtest color_foo_multi3  --and foo logentry test/date.txt
 runtest color_rs          --rs '2014' --and ba 2014 loge test/date.txt
 runtest color_rs2         --rs '2014|Mon|Jan' ba test/date.txt
 
-## -------- advanced 3 - compressed files -------
+## -------- compressed files -------
 gzip --force --keep test/test1.txt
 bzip2 --force --keep test/test1.txt
 xz -z --force --keep test/test1.txt

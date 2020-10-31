@@ -22,7 +22,7 @@ re_time="[0-2][0-9]:[0-5][0-9](:[0-5][0-9])?"
 re_year="(,?[ \t]20[0-9][0-9])?"
 re_dty="$re_date[ \t]$re_time$re_year"
 re_isodate="20[0-9][0-9]-(0[0-9]|11|12)-(0[1-9]|[12][0-9]|3[01])"
-const REGEX_DATETIME = "\n($re_dow$re_month$re_dty|$re_isodate)"
+const REGEX_DATETIME = "^($re_dow$re_month$re_dty|$re_isodate)"
 
 function parse_commandline()
     s = ArgParseSettings()
@@ -79,14 +79,13 @@ function mlgrep(input ::IOStream, rs::Regex, pat::Regex; invert=false::Bool, ign
                     println(recline)
                 end
             end
-            rec = [line]
+            rec = []
             found = false
-        else
-            push!(rec, line)
-            m = match(pat, line)
-            if xor(!isnothing(m), invert)
-                found = true
-            end
+        end
+        push!(rec, line)
+        m = match(pat, line)
+        if xor(!isnothing(m), invert)
+            found = true
         end
     end
     if found
@@ -108,7 +107,11 @@ function main()
     end
 
     pat = Regex(args["pattern"])
-    rs = Regex(args["rs"])
+    if args["timestamp"]
+        rs = Regex(REGEX_DATETIME)
+    else
+        rs = Regex(args["rs"])
+    end
 
     count = mlgrep(input, rs, pat, invert=args["invert-match"])
 
