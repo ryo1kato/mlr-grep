@@ -155,11 +155,6 @@ runtest datetime2 -t 'logentry 2' test/date.txt
 
 
 ## -------- --count, --ignore-case options --------
-cmds=(amlgrep hmlgrep pymlgrep rmlgrep)
-runtest multifile              foo test/test[23].txt
-runtest multifile_count1 -c    foo test/test[12].txt
-runtest multifile_count2 -c -i foo test/test[123].txt
-
 runtest foo1_i    -i foo test/test1.txt
 runtest foo2_i    -i foo test/test2.txt
 runtest foo1_c    -c foo test/test1.txt
@@ -168,6 +163,10 @@ runtest foo2_c    -c foo test/test2.txt
 
 ## -------- multiple files --------
 cmds=(amlgrep hmlgrep pymlgrep rmlgrep)
+runtest multifile              foo test/test[23].txt
+runtest multifile_count1 -c    foo test/test[12].txt
+runtest multifile_count2 -c -i foo test/test[123].txt
+
 runtest foo_re1   '^foo' test/test[12].txt
 runtest foo_re2   'foo$' test/test[12].txt
 runtest foo_re3   '^foo$' test/test[12].txt

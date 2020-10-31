@@ -68,15 +68,18 @@ function parse_commandline()
 end
 
 
-function mlgrep(input ::IOStream, rs::Regex, pat::Regex; invert=false::Bool, ignore_case=false::Bool) :Int
+function mlgrep(input ::IOStream, rs::Regex, pat::Regex; invert=false::Bool, silent=false) :Int
     count = 0
     found = false
     rec = []
     for line in eachline(input)
         if !isnothing(match(rs, line))
             if found
-                for recline in rec
-                    println(recline)
+                count += 1
+                if !silent
+                    for recline in rec
+                        println(recline)
+                    end
                 end
             end
             rec = []
@@ -89,9 +92,12 @@ function mlgrep(input ::IOStream, rs::Regex, pat::Regex; invert=false::Bool, ign
         end
     end
     if found
-        for recline in rec
-            println(recline)
+        if !silent
+            for recline in rec
+                println(recline)
+            end
         end
+        count += 1
     end
 
     return count
@@ -106,19 +112,29 @@ function main()
         input = open(args["file"])
     end
 
-    pat = Regex(args["pattern"])
+    if args["ignore-case"]
+        reFlags = "i"
+    else
+        reFlags = ""
+    end
+
+    pat = Regex(args["pattern"], reFlags)
     if args["timestamp"]
         rs = Regex(REGEX_DATETIME)
     else
         rs = Regex(args["rs"])
     end
 
-    count = mlgrep(input, rs, pat, invert=args["invert-match"])
-
-    if count > 0
-        return 0
+    if args["count"]
+        count = mlgrep(input, rs, pat, invert=args["invert-match"], silent=true)
+        println(count)
     else
-        return 1
+        count = mlgrep(input, rs, pat, invert=args["invert-match"])
+    end
+    if count == 0
+        exit(1)
+    else
+        exit(0)
     end
 end
 
