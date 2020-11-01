@@ -28,24 +28,32 @@ var Summary = `
 // The Flag function creates a boolean flag, possibly with a negating
 // alternative.  Note that you can specify either long or short flags
 // naturally in the same list.
-var optCount = goopt.Flag([]string{"-c", "--count"}, nil,
-	"Print number of matches. (same as grep -c)", "")
-var optIgnoreCase = goopt.Flag([]string{"-i", "--ignore-case"}, nil,
-	"Case insensitive matching. Default is case sensitive.", "")
-var optInvert = goopt.Flag([]string{"-v", "--invert"}, nil,
-	"Select non-matching records (same as grep -v).", "")
-var optAnd = goopt.Flag([]string{"-a", "--and"}, nil,
-	"Extract records with all of patterns. (default: any)", "")
-
-//var optTimestamp = goopt.Flag([]string{"-t", "--timestamp"}, nil,
-//	"Same as --rs=TIMESTAMP_REGEX, where the regex matches timestamps often used in log files, e.g., '2014-12-31 12:34:56' or 'Dec 31 12:34:56'.", "")
+//var optCount = goopt.Flag([]string{"-c", "--count"}, nil,
+//	"Print number of matches. (same as grep -c)", "")
+//var optIgnoreCase = goopt.Flag([]string{"-i", "--ignore-case"}, nil,
+//	"Case insensitive matching. Default is case sensitive.", "")
+//var optInvert = goopt.Flag([]string{"-v", "--invert"}, nil,
+//	"Select non-matching records (same as grep -v).", "")
+//var optAnd = goopt.Flag([]string{"-a", "--and"}, nil,
+//	"Extract records with all of patterns. (default: any)", "")
 //var optColor = goopt.Flag([]string{"--color", "--hl"}, nil,
 //	"Highlight matches. Default is enabled iff stdout is a TTY.", "")
 
-const RS_REGEX = "^$|^(=====*|-----*)$"
-
 var rs = goopt.StringWithLabel([]string{"-r", "--rs"}, RS_REGEX, "RS_REGEX",
 	fmt.Sprintf("Input record separator. default: /%s/", RS_REGEX))
+
+var optTimestamp = goopt.Flag([]string{"-t", "--timestamp"}, nil,
+	"Same as --rs=TIMESTAMP_REGEX, where the regex matches timestamps often used in log files, e.g., '2014-12-31 12:34:56' or 'Dec 31 12:34:56'.", "")
+
+const RS_REGEX = "^$|^(=====*|-----*)$"
+const re_dow = "((Mon|Tue|Wed|Thu|Fri|Sat),?[ \t]+)?"
+const re_month = "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Dec),?[ \t]"
+const re_date = "[0-9]{1,2},?"
+const re_time = "[0-2][0-9]:[0-5][0-9](:[0-5][0-9])?"
+const re_year = "(,?[ \t]20[0-9][0-9])?"
+const re_dty = re_date + "[ \t]" + re_time + re_year
+const re_isodate = "20[0-9][0-9]-(0[0-9]|11|12)-(0[1-9]|[12][0-9]|3[01])"
+const TIMESTAMP_RS = string("^(" + re_dow + re_month + re_dty + "|" + re_isodate + ")")
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -229,7 +237,7 @@ func mlrgrep_srf(pat string, rs string, r io.Reader) {
 }
 
 func main() {
-	goopt.Version = "0.1"
+	goopt.Version = "0.2"
 	goopt.Usage = func() string {
 		usage := "Usage: " + Usage
 		usage += fmt.Sprintf("%s", Summary)
@@ -240,6 +248,11 @@ func main() {
 
 	var regex []string
 	var files []string
+
+	if *optTimestamp {
+		timestamp_rs := TIMESTAMP_RS
+		rs = &timestamp_rs
+	}
 
 	debug("os.Args: %s\n", os.Args)
 	debug("rs=%s\n", *rs)

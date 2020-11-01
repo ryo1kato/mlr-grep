@@ -148,13 +148,13 @@ runtest rs3foo       --rs='^----$' 'foo'     test/test1.txt
 runtest rs3foobar    --rs='^----$' 'foo bar' test/test1.txt
 
 ## -------- --datetime option --------
-cmds=(amlgrep hmlgrep pymlgrep rmlgrep jmlgrep)
 runtest date      -t foo test/date.txt
 runtest datetime1 -t foo test/date.txt
 runtest datetime2 -t 'logentry 2' test/date.txt
 
 
 ## -------- --count, --ignore-case options --------
+cmds=(amlgrep hmlgrep pymlgrep rmlgrep jmlgrep)
 runtest foo1_i    -i foo test/test1.txt
 runtest foo2_i    -i foo test/test2.txt
 runtest foo1_c    -c foo test/test1.txt
