@@ -8,6 +8,7 @@ else
 endif
 endif
 GHC = ghc -cpp --make
+JULIA = /Applications/Julia-1.5.app/Contents/Resources/julia/bin/julia
 
 all: hmlgrep gmlgrep rmlgrep
 prof static: all
@@ -19,8 +20,12 @@ test-result/test.data:
 	mkdir -p test-result
 	./test/gentestlog.sh
 
+jmlgrep:
+	cd julia && $(JULIA) --project -e 'using PackageCompiler; create_app(".", "build"; force=true, incremental=true)'
+
 hmlgrep: hmlgrep.hs Makefile
-	$(GHC) $< $(OPTS)
+#	$(GHC) $< $(OPTS)
+	stack build --copy-bins --local-bin-path $(CURDIR)
 
 rmlgrep: rust/src/main.rs
 	cd rust && cargo build --release
@@ -43,4 +48,7 @@ clean:
 	rm -f gmlgrep
 
 cleanall:
+	stack clean
 	rm -rf test-result
+
+.PHONY: jmlgrep
