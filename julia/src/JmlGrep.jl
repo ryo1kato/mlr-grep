@@ -40,14 +40,20 @@ function parse_commandline()
             help = "Set input record separater. Default is: \"$RS_DEFAULT\""
             arg_type = String
             default = RS_DEFAULT
-#        "--color"
-#            help = "Highlight matches even when the output is a file."
-#            action = :store_true
-#            dest_name = "highlight"
-#        "--mono"
-#            help = "Do not highlight matches even when the output is a terminal"
-#            action = :store_true
-#            dest_name = "highlight"
+        # See https://github.com/JuliaLang/julia/pull/36671
+        #"--color"
+        #    help = "Highlight matches even when the output is not a terminal."
+        #    action = :store_const
+        #    constant = "always"
+        #    default = "auto"
+        #    dest_name = "highlight"
+        "--mono"
+            help = "Do not highlight matches even when the output is a terminal"
+            arg_type = String
+            action = :store_const
+            constant = "never"
+            default = "auto"
+            dest_name = "highlight"
 #        "--and", "-a"
 #            help = "Print entries match with all, instead of any, of PATTERNS."
 #            action = :store_true
@@ -68,8 +74,34 @@ function parse_commandline()
     return parse_args(s)
 end
 
+struct RecLine
+    line::String
+    match::Union{RegexMatch,Nothing}
+end
 
-function mlgrep(input, rs::Regex, pat::Regex; invert=false::Bool, silent=false) :Int
+function print_record(rec, highlight::Bool)
+    if highlight
+        for recline in rec
+            if isnothing(recline.match)
+                println(recline.line)
+            else
+                pos = recline.match.offset
+                sz = length(recline.match.match)
+                str = recline.line
+                print(str[1:pos-1])
+                # See https://github.com/JuliaLang/julia/pull/36671
+                printstyled(str[pos:(pos+sz)-1], bold=true, color=:red)
+                println(str[pos+sz:end])
+            end
+        end
+    else
+        for recline in rec
+            println(recline.line)
+        end
+    end
+end
+
+function mlgrep(input, rs::Regex, pat::Regex, highlight::Bool; invert=false::Bool, silent=false) :Int
     count = 0
     found = false
     rec = []
@@ -78,25 +110,21 @@ function mlgrep(input, rs::Regex, pat::Regex; invert=false::Bool, silent=false) 
             if found
                 count += 1
                 if !silent
-                    for recline in rec
-                        println(recline)
-                    end
+                    print_record(rec, highlight)
                 end
             end
             rec = []
             found = false
         end
-        push!(rec, line)
         m = match(pat, line)
+        push!(rec, RecLine(line, m))
         if xor(!isnothing(m), invert)
             found = true
         end
     end
     if found
         if !silent
-            for recline in rec
-                println(recline)
-            end
+            print_record(rec, highlight)
         end
         count += 1
     end
@@ -123,9 +151,8 @@ function pattern_filename_split(strings)
     return (patterns, filenames)
 end
 
-function main()
-    args = parse_commandline()
 
+function process_args(args)
     if length(args["pattern"]) == 0
         println(stderr, "At least one argument (a pattern) is required")
         exit(2)
@@ -155,6 +182,23 @@ function main()
         rs = Regex(args["rs"], reFlags)
     end
 
+    if args["highlight"] == "always"
+        highlight = true
+    elseif args["highlight"] == "never"
+        highlight = false
+    else
+       highlight = isa(stdout, Base.TTY)
+    end
+
+    return (patterns, filenames, reFlags, rs, pat, highlight)
+end
+
+
+function main()
+    args = parse_commandline()
+
+    patterns, filenames, reFlags, rs, pat, highlight = process_args(args)
+
     count = 0
     for f in filenames
         if f == "-"
@@ -163,14 +207,14 @@ function main()
             input = open(f)
         end
         if args["count"]
-            this_count = mlgrep(input, rs, pat, invert=args["invert-match"], silent=true)
+            this_count = mlgrep(input, rs, pat, highlight, invert=args["invert-match"], silent=true)
             if length(filenames) > 1
                 print("$f:")
             end
             println(this_count)
             count += this_count
         else
-            count += mlgrep(input, rs, pat, invert=args["invert-match"])
+            count += mlgrep(input, rs, pat, highlight, invert=args["invert-match"])
         end
     end
 
@@ -196,5 +240,6 @@ end
 if abspath(PROGRAM_FILE) == @__FILE__
     main()
 end
+
 
 end #module
