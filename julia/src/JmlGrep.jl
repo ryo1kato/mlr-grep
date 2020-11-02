@@ -1,9 +1,9 @@
 #!/usr/bin/env julia --project=@.
 #
 # TODO:
-#   [ ] basic features: --rs, -v, -i, -c
+#   [x] basic features: --rs, -v, -i, -c
+#   [x] additional features: --color, --mono with terminal detection
 #   [ ] additional features multiple patterns, --and
-#   [ ] additional features: --color, --mono with terminal detection
 #   [ ] multi-line record-separator
 #   [ ] performance: use Boyre-moore or KMR for non-regex match
 #   [ ] performance : mmap
