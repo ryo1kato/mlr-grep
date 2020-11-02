@@ -4,7 +4,7 @@ trap 'echo "$0: Unexpected error at line $LINENO" >&2; exit 1;' ERR
 testdata="${1:-test-result/test.data}"
 
 MSG () { echo "$@"; }
-mlgrep=(./aml ./hml ./rml ./gml)
+mlgrep=(./aml ./hml ./rml ./gml ./jml)
 
 if [[ $(grep --version) =~ GNU ]]
 then
