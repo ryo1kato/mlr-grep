@@ -151,7 +151,7 @@ toPlainString re       = liftM reverse $ toPlainString' [] re
 
 {- |
     convert ^ and $ to '\n' in regex string because we don't want to
-    use PCRE multiline mode in which /^$/ matches at very end of "foobar\n"
+    use pcre multiline mode in which /^$/ matches at very end of "foobar\n"
     which we don't want.
 
     >>> _sanitizeRe "^$|^(----*|====*)$"
